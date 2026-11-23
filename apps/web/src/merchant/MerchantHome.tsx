@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
 import { CatalogImport } from './CatalogImport';
 import { CashSales } from './CashSales';
+import { SupportTickets } from './SupportTickets';
 
 type Session = { merchantId: string; role: string; token: string };
 type Branch = { id: string; name: string; timezone: string; catalogDefaults: string[] };
@@ -31,6 +32,7 @@ export function MerchantHome() {
       <button onClick={() => { setSession(undefined); setBranches([]); setRegisters([]); }}>End local session</button>
       <Action title="Refresh branches" run={async () => { await refresh(session); return 'Branches updated'; }} />
       {session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}`} token={session.token} />}
+      {session.role === 'owner' && <SupportTickets merchantId={session.merchantId} token={session.token} />}
       {!branches.length && <p>No assigned branches.</p>}
       {branches.map((branch) => {
         const path = `merchants/${session.merchantId}`;

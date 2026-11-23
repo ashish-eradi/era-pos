@@ -7,10 +7,12 @@ import { activate, pairing } from './pairing';
 import { cachedCatalog, refreshCatalog } from './catalog';
 import { cashState, closeShift, commitCash, receiptToPrint, startShift, syncCash } from './cash';
 import { printReceipt } from './print';
+import { reportHeartbeat } from './heartbeat';
 import type { CashInput } from '../bridge';
 import type { IpcMainInvokeEvent } from 'electron';
 
 let database: DatabaseSync | undefined;
+let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 async function start(): Promise<void> {
   const appPath = app.getAppPath();
@@ -19,6 +21,14 @@ async function start(): Promise<void> {
     join(appPath, 'migrations'),
   );
   const storage = database;
+  let heartbeatPending = false;
+  function heartbeat() {
+    if (heartbeatPending) return;
+    heartbeatPending = true;
+    void reportHeartbeat(storage, app.getVersion()).catch(() => undefined).finally(() => { heartbeatPending = false; });
+  }
+  heartbeat();
+  heartbeatTimer = setInterval(heartbeat, 60_000);
   const window = new BrowserWindow({
     width: 900,
     height: 650,
@@ -40,7 +50,7 @@ async function start(): Promise<void> {
   });
   ipcMain.handle('counter:activate', (event, code: string) => {
     if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Activation is restricted to the counter window');
-    return activate(storage, code);
+    return activate(storage, code).then((identity) => { heartbeat(); return identity; });
   });
   ipcMain.handle('counter:catalog', (event) => {
     if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Catalog is restricted to the counter window');
@@ -60,7 +70,7 @@ async function start(): Promise<void> {
   let syncing: ReturnType<typeof syncCash> | undefined;
   ipcMain.handle('counter:sync-cash', (event) => {
     counterOnly(event);
-    syncing ??= syncCash(storage).finally(() => { syncing = undefined; });
+    syncing ??= syncCash(storage).finally(() => { syncing = undefined; heartbeat(); });
     return syncing;
   });
   ipcMain.handle('counter:print-receipt', (event, id: string) => {
@@ -74,7 +84,7 @@ async function start(): Promise<void> {
 }
 
 app.on('window-all-closed', () => app.quit());
-app.on('will-quit', () => database?.close());
+app.on('will-quit', () => { clearInterval(heartbeatTimer); database?.close(); });
 
 void app.whenReady().then(start).catch((error: unknown) => {
   console.error(error);

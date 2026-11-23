@@ -9,7 +9,8 @@ export async function checkOnboarding(port, connectionString) {
   const db = new pg.Client({ connectionString });
   const admin = randomBytes(32).toString('base64url');
   const support = randomBytes(32).toString('base64url');
-  const operators = [randomUUID(), randomUUID()];
+  const otherSupport = randomBytes(32).toString('base64url');
+  const operators = [randomUUID(), randomUUID(), randomUUID()];
   await db.connect();
 
   async function call(route, token, expected, body, method = body ? 'POST' : 'GET') {
@@ -24,9 +25,11 @@ export async function checkOnboarding(port, connectionString) {
   }
 
   try {
-    await db.query("INSERT INTO platform_operators VALUES ($1, 'Smoke admin', 'admin'), ($2, 'Smoke support', 'support')", operators);
-    await db.query("INSERT INTO platform_sessions VALUES ($1, $2, now() + interval '1 hour'), ($3, $4, now() + interval '1 hour')",
-      [digest(admin), operators[0], digest(support), operators[1]]);
+    await db.query("INSERT INTO platform_operators VALUES ($1, 'Smoke admin', 'admin'), ($2, 'Smoke support', 'support'), ($3, 'Other support', 'support')", operators);
+    await db.query(`
+      INSERT INTO platform_sessions VALUES ($1, $2, now() + interval '1 hour'),
+        ($3, $4, now() + interval '1 hour'), ($5, $6, now() + interval '1 hour')
+    `, [digest(admin), operators[0], digest(support), operators[1], digest(otherSupport), operators[2]]);
     const trial = { requestId: randomUUID(), name: 'Smoke Retail', legalName: 'Smoke Retail Ltd', country: 'IN',
       email: `${randomUUID()}@example.test`, plan: 'pilot', branchLimit: 2, registerLimit: 1 };
     await call('platform/trials', support, 403, trial);
@@ -165,6 +168,56 @@ export async function checkOnboarding(port, connectionString) {
     assert.deepEqual(await call(`${otherMerchant}/cash-sales`, otherOwner.token, 200), []);
     assert.equal((await db.query("SELECT 1 FROM stock_movements WHERE merchant_id = $1 AND kind = 'cash_sale'", [merchantId])).rowCount, 1);
     console.log('Discount authorization, cash sync replay, single stock decrement and owner isolation passed');
+    const heartbeat = { deviceId, appVersion: '0.0.0', pending: 2, rejected: 1, oldestPendingAt: operation.occurredAt };
+    await call('devices/heartbeat', otherProof, 401, heartbeat);
+    await call('devices/heartbeat', freshProof, 201, heartbeat);
+    const queuePath = 'platform/support/queue';
+    await call(queuePath, admin, 403);
+    assert.equal((await call(queuePath, support, 200)).stale.some((item) => item.registerId === register.id), false);
+    await db.query("UPDATE register_health SET observed_at = now() - interval '4 minutes' WHERE merchant_id = $1 AND register_id = $2",
+      [merchantId, register.id]);
+    const stale = (await call(queuePath, support, 200)).stale.find((item) => item.registerId === register.id);
+    assert.equal(stale.merchantId, merchantId);
+    assert.ok(stale.lastAcknowledgedAt);
+    assert.equal(stale.pending, undefined);
+    const incident = await call('platform/support/tickets', support, 201, { merchantId, registerId: register.id, reason: 'Counter stopped reporting' });
+    const supportTicket = `platform/support/tickets/${incident.id}`;
+    const ownerTicket = `${merchant}/support/tickets/${incident.id}`;
+    const diagnostics = `${supportTicket}/diagnostics`;
+    const permission = { minutes: 30, reason: 'Inspect connectivity' };
+    await call(`${ownerTicket}/grants`, owner.token, 409, permission);
+    await call(`${supportTicket}/events`, support, 201, { kind: 'assigned', message: 'On-call assignment' });
+    await call(`${supportTicket}/events`, otherSupport, 403, { kind: 'noted', message: 'Unassigned operator' });
+    await call(diagnostics, support, 403);
+    await call(`${ownerTicket}/grants`, staff.token, 403, permission);
+    await call(`${otherMerchant}/support/tickets/${incident.id}/history`, otherOwner.token, 404);
+    const grantA = await call(`${ownerTicket}/grants`, owner.token, 201, permission);
+    await call(diagnostics, otherSupport, 403);
+    const details = await call(diagnostics, support, 200);
+    assert.equal(details.pending, 2);
+    assert.equal(details.rejected, 1);
+    assert.equal(details.appVersion, '0.0.0');
+    assert.equal(details.oldestPendingAt, operation.occurredAt);
+    assert.equal(details.receipt, undefined);
+    await call(`${ownerTicket}/grants/${grantA.id}/revoke`, owner.token, 201, { reason: 'Connectivity restored' });
+    await call(diagnostics, support, 403);
+    const grantB = await call(`${ownerTicket}/grants`, owner.token, 201, permission);
+    await db.query("UPDATE support_grants SET expires_at = now() - interval '1 minute' WHERE id = $1", [grantB.id]);
+    await call(diagnostics, support, 403);
+    await call(`${ownerTicket}/grants`, owner.token, 201, permission);
+    await call(`${supportTicket}/events`, support, 201, { kind: 'noted', message: 'Checked reported queue' });
+    await call(`${supportTicket}/events`, support, 201, { kind: 'resolved', message: 'Connection restored' });
+    await call(diagnostics, support, 403);
+    const history = await call(`${ownerTicket}/history`, owner.token, 200);
+    assert.deepEqual(history.events.map(({ kind }) => kind),
+      ['opened', 'assigned', 'granted', 'diagnostics_viewed', 'revoked', 'granted', 'granted', 'noted', 'resolved']);
+    assert.equal(history.events.at(-1).actor, 'Smoke support');
+    assert.equal(history.events.at(-1).message, 'Connection restored');
+    assert.ok(history.grants.every(({ active }) => !active));
+    assert.deepEqual(await call(`${otherMerchant}/support/tickets`, otherOwner.token, 200), []);
+    await call('devices/heartbeat', freshProof, 201, heartbeat);
+    assert.equal((await call(queuePath, support, 200)).stale.some((item) => item.registerId === register.id), false);
+    console.log('Stale queue, support assignment, scoped diagnostic access, expiry, revocation and audit passed');
     const directory = await call('platform/trials', admin, 200);
     const entry = directory.find((item) => item.merchantId === merchantId);
     assert.equal(entry.country, 'IN');
@@ -185,6 +238,7 @@ export async function checkOnboarding(port, connectionString) {
       const merchants = rows.map(({ merchant_id }) => merchant_id);
       await db.query('BEGIN');
       for (const table of [
+        'support_events', 'support_grants', 'support_tickets', 'register_health',
         'cash_sales', 'cash_discount_approvals',
         'stock_movements', 'catalog_imports', 'branch_catalog',
         'onboarding_audit', 'activation_codes', 'invitations', 'merchant_audit', 'registers',

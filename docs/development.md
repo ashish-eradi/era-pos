@@ -90,6 +90,12 @@ For a discount, give the merchant owner the sale ID and amount. The owner author
 
 To close the shift, enter counted cash before viewing the expected amount and variance. Shifts and close counts are kept on the register. The counter retries queued cash sales when it comes online and periodically while sales are pending. **Sync sales** also checks manually. Rejected sales remain stored for review. Catalog updates wait for local sales to sync so a download cannot overwrite pending stock decrements. Owners can open **Cash sales** in the web workspace to view the latest 100 synchronized receipts.
 
+## Diagnose a stale register
+
+Run `npm.cmd run create-operator -w @era/api -- "Pilot support" support` in a trusted terminal after applying migrations. Paste the short-lived token into **ERA support**. Paired counters report app version and queue counts about once a minute. A register appears stale after three minutes without a heartbeat. The queue shows the last observation and last acknowledged sale. Counts from an offline register describe the last report received.
+
+Open an incident for a stale register and assign it to yourself. In the merchant workspace, the owner can load the incident under **Support incidents and access** and grant up to 60 minutes of diagnostics for that register. The operator can then load the reported queue, app version and sync timestamps. Each read is audited. Revoking a grant or resolving the incident disables further diagnostic requests. Record a reason, updates as needed, and the outcome when resolving. Keep incident messages focused on device symptoms and recovery steps.
+
 ## Architecture decisions
 
 - Use npm workspaces with one committed lockfile and a shared strict TypeScript configuration. Each app owns its compiler and runtime settings.
