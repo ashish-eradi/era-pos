@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
+import { CatalogImport } from './CatalogImport';
 
 type Session = { merchantId: string; role: string; token: string };
 type Branch = { id: string; name: string; timezone: string; catalogDefaults: string[] };
@@ -35,6 +36,7 @@ export function MerchantHome() {
           <h3>{branch.name}</h3>
           <p>{branch.timezone}{branch.catalogDefaults.length > 0 && ` · Suggested catalog attributes: ${branch.catalogDefaults.join(', ')}`}</p>
           {session.role === 'owner' && <>
+            <CatalogImport path={`${path}/branches/${branch.id}/catalog`} token={session.token} />
             <Action title="Invite branch staff" run={async (form) => {
               const { code } = await request<{ code: string }>(`${path}/branches/${branch.id}/staff-invitations`, session.token, values(form));
               return `Share privately. Code expires in 24 hours: ${code}`;
@@ -49,7 +51,7 @@ export function MerchantHome() {
             }}><Field name="name" label="Register name" /><Field name="reason" label="Reason" /></Action>
             {registers.filter(({ branchId }) => branchId === branch.id).map((register) => <div key={register.id}>
               <p>{register.name} · {register.status}</p>
-              {register.status === 'pending' && <Action title="Generate activation code" run={async () => {
+              {register.status !== 'revoked' && <Action title={register.status === 'pending' ? 'Generate activation code' : 'Generate catalog access code'} run={async () => {
                 const { code } = await request<{ code: string }>(`${path}/registers/${register.id}/activation-code`, session.token, {});
                 return `Enter on the register within 10 minutes: ${code}`;
               }} />}

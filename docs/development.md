@@ -32,6 +32,7 @@ Stop the API and worker with Ctrl+C. Run `docker compose down` to stop PostgreSQ
 
 ```powershell
 npm.cmd run dev:web
+npm.cmd run build -w @era/contracts
 npm.cmd run build -w @era/counter
 npm.cmd run start:counter
 ```
@@ -74,6 +75,12 @@ Apply migrations and start the API, then run `npm.cmd run create-operator -w @er
 Open the merchant workspace in a separate tab. Accept the invitation, invite staff to a specific branch or reserve a register and generate an activation code. Enter that code in the Windows counter within 10 minutes. Restart the counter to verify pairing persists. If the activation response is interrupted, retry on the same counter to recover the completed pairing. Refresh the operations console to see owner acceptance and paired register counts.
 
 The dev web server proxies API requests to port 3001. Deploy the built web app with a same-origin HTTPS reverse proxy for `/v1`. The counter defaults to the local API. For a remote API, set `ERA_API_ORIGIN` in the counter process environment to its HTTPS origin. Device authentication for sales sync and replacement recovery are future work. Browser sessions stay in memory. After a reload or expiration, use a fresh invitation for the same role and address.
+
+## Publish a branch catalog
+
+In the merchant workspace, open **Import catalog and opening stock** for the branch and preview `fixtures/catalog.csv`. Keep the header order. Supply integer minor-unit prices, optional opening quantities and optional JSON attributes with text values. Keep leading zeroes in barcodes by exporting them as text. Fix any preview issues, then confirm to publish the version. Repeating the same import returns its original version and leaves stock unchanged. A later import can add SKUs or update price and attributes. Leave opening stock blank to keep a prior quantity.
+
+On the paired Windows counter, select **Download catalog**. For a counter paired before catalog access was added, generate a catalog access code for the active register and enter it on the same device. The counter caches the latest catalog in SQLite and can search it offline by product, SKU or barcode. The catalog shows the most recently downloaded stock quantity.
 
 ## Architecture decisions
 

@@ -105,7 +105,7 @@ export class OnboardingController {
         'SELECT branch_id, status FROM registers WHERE merchant_id = $1 AND id = $2 FOR UPDATE', [merchantId, registerId],
       );
       if (!rows[0]) throw new NotFoundException();
-      if (rows[0].status !== 'pending') throw new ConflictException('Register is not pending');
+      if (rows[0].status === 'revoked') throw new ConflictException('Register was revoked');
       await client.query('UPDATE activation_codes SET consumed_at = now() WHERE merchant_id = $1 AND register_id = $2 AND consumed_at IS NULL',
         [merchantId, registerId]);
       const code = secret();
@@ -124,14 +124,15 @@ export class OnboardingController {
     const deviceId = uuid(data.deviceId, 'device ID');
     const pairingDigest = codeDigest(data.pairingProof);
     return transaction(this.database, async (client) => {
-      const { rows } = await client.query<{ merchant_id: string; branch_id: string; register_id: string; membership_id: string }>(`
-        SELECT c.merchant_id, c.branch_id, c.register_id, c.membership_id
+      const { rows } = await client.query<{ merchant_id: string; branch_id: string; register_id: string; membership_id: string; status: string }>(`
+        SELECT c.merchant_id, c.branch_id, c.register_id, c.membership_id, r.status
         FROM activation_codes c
         JOIN registers r ON (r.merchant_id, r.branch_id, r.id) = (c.merchant_id, c.branch_id, c.register_id)
         JOIN memberships m ON (m.merchant_id, m.id) = (c.merchant_id, c.membership_id)
-        WHERE c.digest = $1 AND r.status = 'pending' AND m.active AND m.role = 'owner'
+        WHERE c.digest = $1 AND (r.status = 'pending' OR (r.status = 'active' AND r.device_id = $2))
+          AND m.active AND m.role = 'owner'
         FOR UPDATE OF r
-      `, [hash]);
+      `, [hash, deviceId]);
       const code = rows[0];
       if (!code) throw new UnauthorizedException('Activation code expired or already used');
       const consumed = await client.query(`
@@ -140,16 +141,19 @@ export class OnboardingController {
       `, [hash]);
       if (!consumed.rowCount) throw new UnauthorizedException('Activation code expired or already used');
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 2))', [deviceId]);
-      const existing = await client.query("SELECT 1 FROM registers WHERE device_id = $1 AND status = 'active'", [deviceId]);
+      const existing = await client.query(`
+        SELECT 1 FROM registers WHERE device_id = $1 AND status = 'active' AND (merchant_id, id) <> ($2, $3)
+      `, [deviceId, code.merchant_id, code.register_id]);
       if (existing.rowCount) throw new ConflictException('Device is already paired');
       await client.query(`
-        UPDATE registers SET status = 'active', device_id = $3, activated_at = now(), pairing_digest = $4
+        UPDATE registers SET status = 'active', device_id = $3, activated_at = COALESCE(activated_at, now()), pairing_digest = $4
         WHERE merchant_id = $1 AND id = $2
       `, [code.merchant_id, code.register_id, deviceId, pairingDigest]);
       await client.query(`
         INSERT INTO merchant_audit (merchant_id, membership_id, branch_id, register_id, action, reason)
-        VALUES ($1, $2, $3, $4, 'register.activated', 'Owner issued activation code')
-      `, [code.merchant_id, code.membership_id, code.branch_id, code.register_id]);
+        VALUES ($1, $2, $3, $4, $5, 'Owner issued activation code')
+      `, [code.merchant_id, code.membership_id, code.branch_id, code.register_id,
+        code.status === 'pending' ? 'register.activated' : 'register.catalog_access_refreshed']);
       return { merchantId: code.merchant_id, branchId: code.branch_id, registerId: code.register_id, deviceId };
     });
   }
