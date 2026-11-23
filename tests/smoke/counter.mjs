@@ -71,6 +71,13 @@ const server = createServer(async (request, response) => {
     response.end();
     return;
   }
+  if (request.url === '/v1/devices/shift-close') {
+    assert.equal(input.deviceId, device);
+    assert.equal(request.headers.authorization, `Bearer ${proof}`);
+    response.writeHead(201, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ id: input.id, replayed: false }));
+    return;
+  }
   if (request.url === '/v1/devices/catalog') {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);

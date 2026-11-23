@@ -90,7 +90,8 @@ export async function sendRefund(database: Pool, merchant: string, id: string, a
   if (refund.amount !== amount || refund.payment_id !== reserved.payment || !/^rfnd_[A-Za-z0-9]+$/.test(refund.id) ||
     !['pending', 'processed', 'failed'].includes(refund.status)) throw new BadGatewayException('Refund does not match provider response');
   const result = await database.query<{ status: string }>(`
-    UPDATE upi_refunds SET provider_id = $3, status = CASE WHEN status = 'pending' THEN $4 ELSE status END
+    UPDATE upi_refunds SET provider_id = $3, status = CASE WHEN status = 'pending' THEN $4 ELSE status END,
+      resolved_at = CASE WHEN $4 <> 'pending' THEN COALESCE(resolved_at,now()) ELSE resolved_at END
     WHERE merchant_id = $1 AND id = $2 AND (provider_id IS NULL OR provider_id = $3) RETURNING status
   `, [merchant, id, refund.id, refund.status]);
   if (!result.rows[0]) throw new ConflictException('Refund provider reference changed');

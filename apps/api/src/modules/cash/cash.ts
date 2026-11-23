@@ -5,6 +5,7 @@ import {
 import { cashAmount, cashSubtotal, isCashReceiptV1 } from '@era/contracts';
 import type { SyncAcknowledgementV1 } from '@era/contracts';
 import type { Pool } from 'pg';
+import { shiftClosed } from './closes';
 import { MERCHANT_DATABASE } from '../merchant/merchant.controller';
 import { bearer, digest, owner, record, secret, transaction, uuid } from '../onboarding/shared';
 
@@ -97,6 +98,7 @@ export class CashController {
         ? { version: 1, operationId, status: 'replayed', committedAt: existing.rows[0].committed_at.toISOString() }
         : fail('operation_conflict');
       if (receipt.currency !== (scope.country_code === 'IN' ? 'INR' : 'USD')) return fail('invalid_operation');
+      if (await shiftClosed(client, merchant, register, receipt.shiftId)) return fail('invalid_operation');
       const products = await client.query('SELECT sku FROM branch_catalog WHERE merchant_id = $1 AND branch_id = $2 AND sku = ANY($3)',
         [merchant, branch, lines.map(({ sku }) => sku)]);
       if (products.rowCount !== lines.length) return fail('invalid_operation');

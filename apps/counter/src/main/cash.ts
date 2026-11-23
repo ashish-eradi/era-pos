@@ -6,6 +6,7 @@ import type { CashInput, CashState } from '../bridge';
 import { cachedCatalog } from './catalog';
 import { apiUrl, catalogCredential, pairing } from './pairing';
 import { cashFromReturns } from './returns';
+import { queuedShiftCloses, syncShiftCloses } from './shift-sync';
 import { clearUpi, savedUpi } from './upi';
 
 type Envelope = SyncRequestV1<CashReceiptV1>;
@@ -60,7 +61,7 @@ export function cashState(database: DatabaseSync): CashState {
   `).all(identity.registerId);
   return {
     shift: shift && { id: shift.id, openedAt: shift.opened_at },
-    receipts, upi: savedUpi(database), pending: Number(counts.find(({ status }) => status === 'pending')?.count ?? 0),
+    receipts, upi: savedUpi(database), pending: Number(counts.find(({ status }) => status === 'pending')?.count ?? 0) + queuedShiftCloses(database,identity.registerId).count,
     rejected: Number(counts.find(({ status }) => status === 'rejected')?.count ?? 0),
   };
 }
@@ -173,6 +174,7 @@ export async function syncCash(database: DatabaseSync): Promise<CashState> {
       throw new Error('Sync unavailable. Saved sales remain queued');
     }
   }
+  await syncShiftCloses(database,identity.deviceId,identity.registerId,(path,body) => post(database,path,body));
   return cashState(database);
 }
 

@@ -6,6 +6,7 @@ import type { Pool, PoolClient } from 'pg';
 import { branchActor, deviceScope } from '../merchant/branch-access';
 import { MERCHANT_DATABASE } from '../merchant/merchant.controller';
 import { digest, record, text, transaction, uuid } from '../onboarding/shared';
+import { shiftClosed } from './closes';
 import { reserveRefund, sendRefund } from '../payments/payments';
 
 const approvers = ['owner', 'manager'] as const;
@@ -110,6 +111,7 @@ export class ReturnsController {
       const refund = await client.query('SELECT 1 FROM upi_refunds WHERE merchant_id = $1 AND id = $2', [merchant,id]);
       if (refund.rowCount) throw new ConflictException('Return ID is already in use');
       const shift = uuid(data.shiftId, 'shift ID');
+      if (await shiftClosed(client,merchant,register,shift)) throw new ConflictException('This shift is closed');
       const saleId = uuid(data.saleId, 'sale ID');
       const reason = text(data.reason, 'return reason', 500);
       if (!Array.isArray(data.lines) || !data.lines.length || data.lines.length > 100) throw new BadRequestException('Select items to return');

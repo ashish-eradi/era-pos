@@ -118,3 +118,9 @@ Open an incident for a stale register and assign it to yourself. In the merchant
 Sync the original sale, open a shift, and request a return on the counter using the receipt ID and SKU. An owner or assigned manager approves it in the merchant workspace. The counter checks the result and can print the completed return. For a cash difference, the cashier handles cash on completion. If a UPI refund response is delayed, use **Check provider refund** on the original request. A shift with an unresolved return stays open. Download the catalog after syncing to pick up current stock.
 
 Returns use the original price and allocate discounts in minor units across partial quantities. Current sales have zero captured tax. Damaged items are recorded separately from sellable stock.
+
+### Inventory and daily close
+
+The branch inventory accepts supplier deliveries by reference and stock counts by SKU. An owner or assigned manager approves count variances. If sellable stock moves before approval, take a fresh count. Damaged returns appear separately.
+
+A closed shift syncs after its sales. The server uses synced cash receipts and completed cash returns and exchanges to calculate expected cash. An owner or assigned manager records a reason for a difference. Owners, assigned managers and assigned accountants can download a dated branch CSV in the branch timezone. It includes sales, returns, cash closes, matched settlement lines, provider refunds and register sync status. Settlement lines keep their import timestamp and provider reference.

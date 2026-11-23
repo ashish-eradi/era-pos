@@ -193,11 +193,38 @@ export async function checkPayments(port, connectionString, provider) {
     assert.equal((await call('devices/catalog', 201, { deviceId })).items[0].onHand, 0);
     assert.equal((await call(returns, 200, undefined, token)).length, 3);
     console.log('Receipt-linked exchange, damaged stock, approval replay, quantity limits and UPI return passed');
+    const branchPath = `merchants/${merchant}/branches/${branch}`;
+    const inventory = `${branchPath}/inventory`;
+    const delivery = { reference: 'supplier-123', lines: [{ sku: 'NOTE', quantity: 3 }] };
+    assert.equal((await call(`${inventory}/delivery`, 201, delivery, token)).duplicate, false);
+    assert.equal((await call(`${inventory}/delivery`, 201, delivery, token)).duplicate, true);
+    await call(`${inventory}/delivery`, 409, { ...delivery, lines: [{ sku: 'NOTE', quantity: 2 }] }, token);
+    const count = await call(`${inventory}/count`, 201, { reference: 'count-1', lines: [{ sku: 'NOTE', quantity: 2 }] }, token);
+    const counted = await call(`${inventory}/count/${count.id}/approve`, 201, { reason: 'Missing item' }, token);
+    assert.equal(counted.approved, true);
+    assert.equal((await call(inventory, 200, undefined, token)).items[0].onHand, 2);
+    const close = { id: sale.payload.shiftId, deviceId, openedAt: sale.occurredAt, closedAt: new Date().toISOString(),
+      floatMinor: 1000, countedMinor: 10000, receiptCount: 2 };
+    assert.equal((await call('devices/shift-close', 201, close)).replayed, false);
+    assert.equal((await call('devices/shift-close', 201, close)).replayed, true);
+    await call('devices/shift-close', 409, { ...close, countedMinor: 10001 });
+    const day = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' })
+      .format(new Date(close.closedAt));
+    const reportPath = `${branchPath}/daily-close?date=${day}`;
+    await call(`${branchPath}/closes/${register}/${close.id}/approve`, 201, { reason: 'Verified shortage' }, token);
+    const report = await call(reportPath, 200, undefined, token);
+    assert.equal(report.shifts[0].expected_minor, '11000');
+    assert.equal(report.shifts[0].variance_minor, '-1000');
+    assert.equal(report.shifts[0].approved_by, 'owner');
+    assert.equal(report.provisional, true);
+    assert.equal(report.settlements[0].payment_id, 'pay_test1');
+    assert.equal(report.providerRefunds.length, 2);
+    console.log('Duplicate delivery, supervised count, replayable cash close and branch reconciliation passed');
     console.log('UPI status, lost provider responses, signed webhook deduplication, overpayment, partial refunds and settlement matching passed');
   } finally {
     try {
       await db.query('BEGIN');
-      for (const table of ['upi_settlements','upi_refunds','upi_events','upi_attempts','sale_returns','cash_sales','stock_movements',
+      for (const table of ['upi_settlements','upi_refunds','upi_events','upi_attempts','shift_closes','inventory_documents','sale_returns','cash_sales','stock_movements',
         'branch_catalog','catalog_barcodes','registers','membership_sessions','memberships','branches']) {
         await db.query(`DELETE FROM ${table} WHERE merchant_id = $1`, [merchant]);
       }
