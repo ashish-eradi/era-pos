@@ -1,0 +1,60 @@
+name: Foundation
+
+on:
+  push:
+    branches: [main, 'team/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: Build and PostgreSQL smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://era:era_dev@127.0.0.1:5432/era_pos
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: era
+          POSTGRES_PASSWORD: era_dev
+          POSTGRES_DB: era_pos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U era -d era_pos"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm install --global npm@11.5.2
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm run smoke:api
+
+  counter:
+    name: Windows counter smoke
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm install --global npm@11.5.2
+      - run: npm ci
+      - run: npm run build -w @era/counter
+      - run: npm run smoke:counter

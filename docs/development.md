@@ -38,6 +38,25 @@ npm.cmd run start:counter
 
 Run the web and counter commands in separate terminals. Open the URL printed by Vite to switch between the merchant and operations shells. The counter displays the local SQLite schema version after startup. Quit and reopen it to reuse the database in Electron’s user data directory.
 
+## Verify a fresh checkout
+
+Run these commands from a fresh Windows checkout with Docker Desktop running. The backend smoke check uses the local development database. The counter smoke check creates and removes its own temporary Electron profile.
+
+```powershell
+Copy-Item .env.example .env
+docker compose up -d --wait postgres
+npm.cmd ci
+npm.cmd run lint
+npm.cmd run build
+npm.cmd run typecheck
+npm.cmd run smoke:api
+npm.cmd run smoke:counter
+```
+
+The API smoke check applies the migrations twice, seeds twice, verifies the fixture records and starts the API and worker. The counter smoke check starts the built Windows app twice, verifies the renderer receives the schema version through preload, and checks that a SQLite setting survives the restart.
+
+The Foundation workflow runs the PostgreSQL smoke check on Ubuntu and the Electron smoke check on Windows. Its two jobs appear on pushes to `team/ed` and on pull requests.
+
 ## Architecture decisions
 
 - Use npm workspaces with one committed lockfile and a shared strict TypeScript configuration. Each app owns its compiler and runtime settings.
