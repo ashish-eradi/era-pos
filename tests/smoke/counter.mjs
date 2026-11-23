@@ -19,11 +19,21 @@ let proof;
 let online = false;
 let committed;
 let retries = 0;
+let heartbeats = 0;
 const server = createServer(async (request, response) => {
   let body = '';
   for await (const chunk of request) body += chunk;
   const input = JSON.parse(body);
   assert.equal(request.method, 'POST');
+  if (request.url === '/v1/devices/heartbeat') {
+    assert.equal(input.deviceId, device);
+    assert.equal(request.headers.authorization, `Bearer ${proof}`);
+    assert.deepEqual(Object.keys(input).sort(), ['appVersion','deviceId','oldestPendingAt','pending','rejected']);
+    heartbeats++;
+    response.writeHead(201, { 'content-type': 'application/json' });
+    response.end('{"received":true}');
+    return;
+  }
   if (request.url === '/v1/devices/cash-sales') {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
@@ -180,6 +190,7 @@ async function main() {
     assert.equal(reopened.prepare("SELECT value FROM register_settings WHERE key = 'smoke-marker'").get().value, 'persisted');
     assert.equal(activationCount, 1);
     assert.equal(downloadCount, 1);
+    assert.ok(heartbeats >= 2);
     assert.equal(retries, 1);
     assert.equal(committed.payload.lines[0].quantity, 1);
     assert.equal(reopened.prepare('SELECT count(*) AS count FROM cash_outbox').get().count, 0);
