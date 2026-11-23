@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -9,6 +11,21 @@ import { setTimeout as delay } from 'node:timers/promises';
 import electron from 'electron';
 
 const profile = mkdtempSync(join(tmpdir(), 'era-pos-counter-'));
+const code = randomBytes(32).toString('base64url');
+let activationCount = 0;
+const server = createServer(async (request, response) => {
+  let body = '';
+  for await (const chunk of request) body += chunk;
+  const input = JSON.parse(body);
+  assert.equal(request.method, 'POST');
+  assert.equal(request.url, '/v1/devices/activate');
+  assert.equal(input.code, code);
+  assert.match(input.deviceId, /^[\da-f-]{36}$/);
+  assert.match(input.pairingProof, /^[A-Za-z0-9_-]{43}$/);
+  activationCount++;
+  response.writeHead(201, { 'content-type': 'application/json' });
+  response.end(JSON.stringify({ merchantId: 'fixture-in', branchId: 'central', registerId: 'counter-1', deviceId: input.deviceId }));
+});
 
 async function evaluate(url, expression) {
   const socket = new WebSocket(url);
@@ -25,8 +42,10 @@ async function evaluate(url, expression) {
   }
 }
 
-async function launch() {
-  const counter = spawn(electron, [resolve('apps/counter'), '--remote-debugging-port=0', `--user-data-dir=${profile}`]);
+async function launch(activate = false) {
+  const counter = spawn(electron, [resolve('apps/counter'), '--remote-debugging-port=0', `--user-data-dir=${profile}`], {
+    env: { ...process.env, ERA_API_ORIGIN: `http://127.0.0.1:${server.address().port}` },
+  });
   let log = '';
   counter.stderr.on('data', (chunk) => { log += chunk; });
   try {
@@ -36,7 +55,16 @@ async function launch() {
       if (endpoint) {
         const pages = await (await fetch(`http://${endpoint}/json/list`)).json();
         const page = pages.find(({ type, url }) => type === 'page' && url.includes('renderer/index.html'));
-        if (page && await evaluate(page.webSocketDebuggerUrl, 'document.querySelector("[role=status]")?.textContent === "Ready · schema version 1"')) {
+        if (page && activate && await evaluate(page.webSocketDebuggerUrl, `
+          (() => {
+            const input = document.querySelector('input[name="code"]');
+            if (!input) return false;
+            input.value = ${JSON.stringify(code)};
+            input.form.requestSubmit();
+            return true;
+          })()
+        `)) activate = false;
+        if (page && await evaluate(page.webSocketDebuggerUrl, 'document.body.textContent.includes("Paired to register counter-1")')) {
           await evaluate(page.webSocketDebuggerUrl, 'window.close()');
           await Promise.race([once(counter, 'exit'), delay(3000)]);
           return;
@@ -55,8 +83,10 @@ async function launch() {
 }
 
 async function main() {
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
   try {
-    await launch();
+    await launch(true);
     const path = join(profile, 'counter.sqlite');
     const db = new DatabaseSync(path, { readOnly: false });
     db.exec("INSERT INTO register_settings VALUES ('smoke-marker', 'persisted')");
@@ -64,9 +94,11 @@ async function main() {
     await launch();
     const reopened = new DatabaseSync(path, { readOnly: true });
     assert.equal(reopened.prepare("SELECT value FROM register_settings WHERE key = 'smoke-marker'").get().value, 'persisted');
+    assert.equal(activationCount, 1);
     reopened.close();
-    console.log('Counter renderer, preload bridge and SQLite persistence passed');
+    console.log('Counter activation via preload and SQLite pairing persistence passed');
   } finally {
+    server.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
   }
 }

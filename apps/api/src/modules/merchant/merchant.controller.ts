@@ -4,6 +4,7 @@ import {
   Inject, NotFoundException, Param, Post, UnauthorizedException,
 } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
+import { defaults } from '../onboarding/shared';
 
 export const MERCHANT_DATABASE = Symbol('MERCHANT_DATABASE');
 
@@ -43,15 +44,15 @@ export class MerchantController {
   @Get('branches')
   async branches(@Param('merchantId') merchantId: string, @Headers('authorization') authorization?: string) {
     const member = await this.member(merchantId, authorization);
-    const { rows } = await this.database.query<{ id: string; name: string; timezone: string }>(`
-      SELECT b.id, b.name, b.timezone FROM branches b
+    const { rows } = await this.database.query<{ id: string; name: string; timezone: string; storeType: keyof typeof defaults }>(`
+      SELECT b.id, b.name, b.timezone, b.store_type AS "storeType" FROM branches b
       WHERE b.merchant_id = $1 AND ($2 OR EXISTS (
         SELECT 1 FROM branch_assignments a
         WHERE a.merchant_id = b.merchant_id AND a.branch_id = b.id AND a.membership_id = $3
       ))
       ORDER BY b.id
     `, [merchantId, member.role === 'owner', member.id]);
-    return rows;
+    return rows.map((branch) => ({ ...branch, catalogDefaults: defaults[branch.storeType] }));
   }
 
   @Get('barcodes/:barcode')

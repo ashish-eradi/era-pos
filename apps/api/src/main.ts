@@ -4,6 +4,8 @@ import { NestFactory } from '@nestjs/core';
 import type { HealthResponseV1 } from '@era/contracts';
 import { openDatabase } from './database';
 import { MERCHANT_DATABASE, MerchantController } from './modules/merchant/merchant.controller';
+import { OnboardingController } from './modules/onboarding/onboarding';
+import { PlatformController } from './modules/onboarding/platform';
 
 const database = openDatabase();
 
@@ -22,7 +24,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, MerchantController],
+  controllers: [HealthController, MerchantController, OnboardingController, PlatformController],
   providers: [{ provide: MERCHANT_DATABASE, useValue: database }],
 })
 class ApiModule {
