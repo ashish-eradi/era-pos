@@ -59,13 +59,21 @@ The Foundation workflow runs the PostgreSQL smoke check on Ubuntu and the Electr
 
 ## Merchant scope and sync contracts
 
-Merchant routes under `/v1/merchants/:merchantId` require an active membership and an unexpired, unrevoked bearer session for that merchant. Store only the SHA-256 digest of a random 32-byte base64url token. The API smoke check provisions short-lived sessions in synthetic records. Merchant invitations and session issuance belong to onboarding.
+Merchant routes under `/v1/merchants/:merchantId` require an active membership and an unexpired, unrevoked bearer session for that merchant. Store only the SHA-256 digest of a random 32-byte base64url token. The API smoke check provisions short-lived sessions in synthetic records.
 
 Owners see all branches, can reserve a register within the merchant allowance, and can request and retrieve a merchant export. Other roles see their assigned branches. A register reservation starts in `pending` and records the actor, branch, register and reason in the same database transaction. Export jobs use the merchant ID from the stored job to select branches and barcode assignments. The API checks the merchant again when retrieving the result.
 
 See `packages/contracts/fixtures/sync-v1.json` for the version 1 envelope and acknowledgements. Use an RFC 3339 UTC timestamp with milliseconds and generate the operation UUID once, when the local operation and outbox entry commit. Keep the original envelope on retry. The cloud must verify the authenticated register belongs to the merchant and branch before applying the operation. Deduplicate by merchant, register and operation ID. Return the original commit timestamp on a matching replay and reject a changed envelope for an existing key. Send a committed acknowledgement only after the database transaction commits. Keep the operation queued after transient errors and surface rejected operations for review.
 
 Money uses safe integer minor units. INR and USD use two decimal places. Apply round-half-away-from-zero when a calculation must convert a fractional minor unit into a payable line value, and sum the rounded line values. Payment and receipt calculations must use one currency per transaction. Checkout will define its operation-specific payload and apply the contracts.
+
+## Run assisted onboarding
+
+Apply migrations and start the API, then run `npm.cmd run create-operator -w @era/api -- "Pilot operator"` from a trusted terminal. The command creates an admin session valid for eight hours and prints its token once. Open ERA operations in the web app and paste the token to create a trial, set allowances, add a branch and issue the owner invitation. Share the code privately. Invitations are single-use and expire after 24 hours.
+
+Open the merchant workspace in a separate tab. Accept the invitation, invite staff to a specific branch or reserve a register and generate an activation code. Enter that code in the Windows counter within 10 minutes. Restart the counter to verify pairing persists. If the activation response is interrupted, retry on the same counter to recover the completed pairing. Refresh the operations console to see owner acceptance and paired register counts.
+
+The dev web server proxies API requests to port 3001. Deploy the built web app with a same-origin HTTPS reverse proxy for `/v1`. The counter defaults to the local API. For a remote API, set `ERA_API_ORIGIN` in the counter process environment to its HTTPS origin. Device authentication for sales sync and replacement recovery are future work. Browser sessions stay in memory. After a reload or expiration, use a fresh invitation for the same role and address.
 
 ## Architecture decisions
 

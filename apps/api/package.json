@@ -8,7 +8,8 @@
     "start": "node --env-file-if-exists=../../.env dist/main.js",
     "worker": "node --env-file-if-exists=../../.env dist/worker/main.js",
     "migrate": "node --env-file-if-exists=../../.env dist/migrate.js",
-    "seed": "node --env-file-if-exists=../../.env dist/seed.js"
+    "seed": "node --env-file-if-exists=../../.env dist/seed.js",
+    "create-operator": "node --env-file-if-exists=../../.env dist/create-operator.js"
   },
   "dependencies": {
     "@era/contracts": "0.0.0",

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { StorageStatus } from '../bridge';
 import { openCounterDatabase } from './database';
+import { activate, pairing } from './pairing';
 
 let database: DatabaseSync | undefined;
 
@@ -29,7 +30,11 @@ async function start(): Promise<void> {
       throw new Error('Storage status is restricted to the counter window');
     }
     const row = storage.prepare('PRAGMA user_version').get();
-    return { schemaVersion: Number(row?.user_version) };
+    return { schemaVersion: Number(row?.user_version), pairing: pairing(storage) };
+  });
+  ipcMain.handle('counter:activate', (event, code: string) => {
+    if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Activation is restricted to the counter window');
+    return activate(storage, code);
   });
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
