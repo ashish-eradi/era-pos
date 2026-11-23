@@ -10,6 +10,9 @@ export function openCounterDatabase(path: string, migrations: string): DatabaseS
     const row = database.prepare('PRAGMA user_version').get();
     let version = Number(row?.user_version);
     const files = readdirSync(migrations).filter((name) => /^\d{3}_.+\.sql$/.test(name)).sort();
+    if (version > Number(files.at(-1)?.slice(0,3) ?? 0)) {
+      throw new Error('The register database requires a newer application version');
+    }
     for (const file of files) {
       const next = Number(file.slice(0, 3));
       if (next <= version) continue;

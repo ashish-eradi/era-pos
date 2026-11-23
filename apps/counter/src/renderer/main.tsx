@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { CounterBridge, Pairing } from '../bridge';
 import type { FormEvent } from 'react';
 import type { CatalogSnapshotV1 } from '@era/contracts';
+import { Maintenance } from './Maintenance';
 import { Checkout } from './Checkout';
 import './style.css';
 
@@ -87,6 +88,7 @@ function Counter() {
       </>}
     </section>}
     {paired && <Checkout key={paired.registerId} catalog={catalog} reloadCatalog={async () => setCatalog(await window.counter.catalog())} />}
+    {schemaReady && <Maintenance readyForRecovery={!!paired && authorized} />}
   </main>;
 }
 
