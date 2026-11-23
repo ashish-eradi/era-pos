@@ -1,3 +1,4 @@
+import { Returns } from './Returns';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { cashSubtotal } from '@era/contracts';
@@ -195,5 +196,6 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
         <button disabled={busy}>Print by receipt ID</button>
       </form>
     </>}
+    <Returns open={!!state?.shift} />
   </section>;
 }

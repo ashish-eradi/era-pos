@@ -112,3 +112,21 @@ Open an incident for a stale register and assign it to yourself. In the merchant
 - Run local PostgreSQL with Docker Compose. The API owns versioned SQL migrations. The worker uses a separate entry point in the same workspace.
 - Keep SQLite and its migrations in the counter main process. The React renderer talks to it through a typed preload bridge.
 - Keep merchant and platform routes in one React app. The API owns authorization. Share versioned payload schemas through `packages/contracts`.
+
+### Receipt returns and exchanges
+
+Sync the original sale, open a shift, and request a return on the counter using the receipt ID and SKU. An owner or assigned manager approves it in the merchant workspace. The counter checks the result and can print the completed return. For a cash difference, the cashier handles cash on completion. If a UPI refund response is delayed, use **Check provider refund** on the original request. A shift with an unresolved return stays open. Download the catalog after syncing to pick up current stock.
+
+Returns use the original price and allocate discounts in minor units across partial quantities. Current sales have zero captured tax. Damaged items are recorded separately from sellable stock.
+
+### Inventory and daily close
+
+The branch inventory accepts supplier deliveries by reference and stock counts by SKU. An owner or assigned manager approves count variances. If sellable stock moves before approval, take a fresh count. Damaged returns appear separately.
+
+A closed shift syncs after its sales. The server uses synced cash receipts and completed cash returns and exchanges to calculate expected cash. An owner or assigned manager records a reason for a difference. Owners, assigned managers and assigned accountants can download a dated branch CSV in the branch timezone. It includes sales, returns, cash closes, matched settlement lines, provider refunds and register sync status. Settlement lines keep their import timestamp and provider reference.
+
+### ERA billing and merchant closure
+
+Create an operator with the `finance` role to issue ERA invoices, record manual payments by bank reference and renew a fully paid invoice. The subscription dates are UTC calendar dates. Billing status appears in the merchant workspace and the operations console. Renewal and grace keep existing register credentials and offline queues intact.
+
+An `admin` operator starts closure from the billing console. Stop checkout, close and sync all shifts, and check pending and rejected records before revoking each device. For an unreachable device, record the reason and unsynced data risk. Resolve pending returns before revocation. After all devices are revoked, finalize closure and give the merchant owner time to download the generated archive. Merchant sessions remain available for history and export.

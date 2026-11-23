@@ -5,6 +5,8 @@ import type { CashReceiptV1, SyncAcknowledgementV1, SyncRequestV1 } from '@era/c
 import type { CashInput, CashState } from '../bridge';
 import { cachedCatalog } from './catalog';
 import { apiUrl, catalogCredential, pairing } from './pairing';
+import { cashFromReturns } from './returns';
+import { queuedShiftCloses, syncShiftCloses } from './shift-sync';
 import { clearUpi, savedUpi } from './upi';
 
 type Envelope = SyncRequestV1<CashReceiptV1>;
@@ -59,7 +61,7 @@ export function cashState(database: DatabaseSync): CashState {
   `).all(identity.registerId);
   return {
     shift: shift && { id: shift.id, openedAt: shift.opened_at },
-    receipts, upi: savedUpi(database), pending: Number(counts.find(({ status }) => status === 'pending')?.count ?? 0),
+    receipts, upi: savedUpi(database), pending: Number(counts.find(({ status }) => status === 'pending')?.count ?? 0) + queuedShiftCloses(database,identity.registerId).count,
     rejected: Number(counts.find(({ status }) => status === 'rejected')?.count ?? 0),
   };
 }
@@ -83,7 +85,7 @@ export function closeShift(database: DatabaseSync, amount: number) {
       SELECT COALESCE(sum(total_minor), 0) AS total FROM cash_receipts
       WHERE shift_id = ? AND COALESCE(json_extract(envelope, '$.payload.tender'), 'cash') = 'cash'
     `).get(current.id);
-    const expected = current.float_minor + Number(sales?.total);
+    const expected = current.float_minor + Number(sales?.total) + cashFromReturns(database,current.id);
     database.prepare('UPDATE cash_shifts SET closed_at = ?, counted_minor = ?, expected_minor = ? WHERE id = ?')
       .run(new Date().toISOString(), amount, expected, current.id);
     return { expected, variance: amount - expected };
@@ -172,6 +174,7 @@ export async function syncCash(database: DatabaseSync): Promise<CashState> {
       throw new Error('Sync unavailable. Saved sales remain queued');
     }
   }
+  await syncShiftCloses(database,identity.deviceId,identity.registerId,(path,body) => post(database,path,body));
   return cashState(database);
 }
 

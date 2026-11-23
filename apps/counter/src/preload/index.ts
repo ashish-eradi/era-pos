@@ -12,6 +12,9 @@ const bridge: CounterBridge = {
   cashSale: (input) => ipcRenderer.invoke('counter:cash-sale', input),
   syncCash: () => ipcRenderer.invoke('counter:sync-cash'),
   printReceipt: (id) => ipcRenderer.invoke('counter:print-receipt', id),
+  returns: () => ipcRenderer.invoke('counter:returns'),
+  changeReturn: (id, action, draft) => ipcRenderer.invoke('counter:change-return', id, action, draft),
+  printReturn: (id) => ipcRenderer.invoke('counter:print-return', id),
   upi: (input) => ipcRenderer.invoke('counter:upi', input),
 };
 

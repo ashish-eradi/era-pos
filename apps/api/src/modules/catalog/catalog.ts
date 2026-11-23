@@ -110,7 +110,7 @@ export class CatalogController {
           SELECT jsonb_agg(jsonb_build_object('sku', c.sku, 'product', c.product, 'barcode', c.barcode,
             'priceMinor', c.price_minor, 'attributes', c.attributes, 'onHand', COALESCE(s.total, 0)) ORDER BY c.sku)
           FROM branch_catalog c LEFT JOIN LATERAL (
-            SELECT sum(quantity) AS total FROM stock_movements mv
+            SELECT sum(quantity) FILTER (WHERE kind <> 'return_damaged') AS total FROM stock_movements mv
             WHERE (mv.merchant_id, mv.branch_id, mv.sku) = (c.merchant_id, c.branch_id, c.sku)
           ) s ON true
           WHERE c.merchant_id = r.merchant_id AND c.branch_id = r.branch_id

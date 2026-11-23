@@ -4,6 +4,7 @@ import {
   Inject, NotFoundException, Param, Post, UnauthorizedException,
 } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
+import { allowProvisioning } from './subscription-access';
 import { defaults } from '../onboarding/shared';
 
 export const MERCHANT_DATABASE = Symbol('MERCHANT_DATABASE');
@@ -84,6 +85,7 @@ export class MerchantController {
       await client.query('BEGIN');
       const member = await this.member(merchantId, authorization, client);
       if (member.role !== 'owner') throw new ForbiddenException();
+      await allowProvisioning(client,merchantId);
       const name = requiredText(input?.name, 'register name', 100);
       const reason = requiredText(input?.reason, 'reason', 500);
       const branch = await client.query('SELECT 1 FROM branches WHERE merchant_id = $1 AND id = $2', [merchantId, branchId]);

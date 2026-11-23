@@ -1,3 +1,5 @@
+import { BillingConsole } from './BillingConsole';
+import type { BillingAccess } from './BillingConsole';
 import { useRef, useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
 
@@ -17,6 +19,7 @@ function StoreType({ initial = 'mixed' }: { initial?: string }) {
 
 export function PlatformHome() {
   const [token, setToken] = useState('');
+  const [billing, setBilling] = useState<BillingAccess>();
   const [trials, setTrials] = useState<Trial[]>([]);
   const retry = useRef<{ details: string; id: string } | undefined>(undefined);
   async function refresh(access: string) {
@@ -26,11 +29,17 @@ export function PlatformHome() {
     <h2 id="platform-title">ERA operations</h2>
     {!token ? <Action title="Open operations console" run={async (form) => {
       const access = values(form).token.trim();
-      await refresh(access);
+      const permissions = await request<BillingAccess>('platform/billing',access);
+      if (permissions.role === 'admin') await refresh(access);
+      setBilling(permissions);
       setToken(access);
       return '';
     }}><Field name="token" label="Operator access token" type="password" /></Action> : <>
-      <button onClick={() => { setToken(''); setTrials([]); }}>Lock console</button>
+      <button onClick={() => { setToken(''); setTrials([]); setBilling(undefined); }}>Lock console</button>
+      {billing && <BillingConsole token={token} access={billing} refresh={async () => {
+        setBilling(await request<BillingAccess>('platform/billing',token));
+      }} />}
+      {billing?.role === 'admin' && <>
       <Action title="Create trial" run={async (form) => {
         const data = values(form);
         const details = JSON.stringify(data);
@@ -74,6 +83,7 @@ export function PlatformHome() {
           }}><StoreType initial={branch.storeType} /></Action>)}
         </details>;
       })}
+      </>}
     </>}
   </section>;
 }

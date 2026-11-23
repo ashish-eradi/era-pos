@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Pool } from 'pg';
+import { allowProvisioning } from '../merchant/subscription-access';
 import { MERCHANT_DATABASE } from '../merchant/merchant.controller';
 import { digest, email, owner, record, secret, text, transaction, uuid } from './shared';
 
@@ -101,6 +102,7 @@ export class OnboardingController {
     @Headers('authorization') authorization?: string) {
     return transaction(this.database, async (client) => {
       const actor = await owner(client, merchantId, authorization);
+      await allowProvisioning(client,merchantId);
       const { rows } = await client.query<{ branch_id: string; status: string }>(
         'SELECT branch_id, status FROM registers WHERE merchant_id = $1 AND id = $2 FOR UPDATE', [merchantId, registerId],
       );

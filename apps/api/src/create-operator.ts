@@ -5,7 +5,7 @@ import { digest, secret, text, transaction } from './modules/onboarding/shared';
 async function createOperator(): Promise<void> {
   const name = text(process.argv[2], 'operator name');
   const role = process.argv[3] ?? 'admin';
-  if (role !== 'admin' && role !== 'support') throw new Error('Select admin or support');
+  if (role !== 'admin' && role !== 'support' && role !== 'finance') throw new Error('Select admin, support or finance');
   const database = openDatabase();
   try {
     const token = secret();

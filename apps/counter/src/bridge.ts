@@ -1,4 +1,4 @@
-import type { CashReceiptV1, CatalogSnapshotV1, SyncRequestV1 } from '@era/contracts';
+import type { CashReceiptV1, CatalogSnapshotV1, ReturnReceipt, ReturnRequest, SyncRequestV1 } from '@era/contracts';
 
 export type CashInput = {
   operationId: string; shiftId: string; catalogVersion: string; lines: Array<{ sku: string; quantity: number }>;
@@ -32,5 +32,8 @@ export interface CounterBridge {
   cashSale(input: CashInput): Promise<string>;
   syncCash(): Promise<CashState>;
   printReceipt(id: string): Promise<void>;
+  returns(): Promise<Array<{ draft: ReturnRequest; receipt: ReturnReceipt | null }>>;
+  changeReturn(id: string, action: 'create' | 'get' | 'cancel', draft?: ReturnRequest): ReturnType<CounterBridge['returns']>;
+  printReturn(id: string): Promise<void>;
   upi(input?: CashInput): Promise<UpiCheckout>;
 }
