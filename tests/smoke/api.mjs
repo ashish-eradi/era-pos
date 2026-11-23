@@ -3,6 +3,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import pg from 'pg';
+import { checkMerchantScope } from './merchant-scope.mjs';
 
 const { DATABASE_URL } = process.env;
 assert.ok(DATABASE_URL, 'Set DATABASE_URL to a local or CI test database');
@@ -68,6 +69,7 @@ const worker = start('worker/main');
 try {
   await readiness(api, worker);
   console.log('PostgreSQL migrations, repeatable seeding, API readiness and worker startup passed');
+  await checkMerchantScope(port, DATABASE_URL);
 } finally {
   await Promise.all([api, worker].map(async ({ child }) => {
     if (child.exitCode !== null || child.signalCode !== null) return;

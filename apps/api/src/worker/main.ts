@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { Logger, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { openDatabase } from '../database';
+import { completeNextMerchantExport } from '../modules/merchant/exports';
 
 const database = openDatabase();
 let keepAlive: ReturnType<typeof setInterval> | undefined;
@@ -19,10 +20,10 @@ async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(WorkerModule);
   app.enableShutdownHooks();
   keepAlive = setInterval(() => {
-    void database.query('SELECT 1').catch((error: unknown) => {
-      Logger.error(error, 'Worker database check');
+    void completeNextMerchantExport(database).catch((error: unknown) => {
+      Logger.error(error, 'Merchant export worker');
     });
-  }, 30_000);
+  }, 1000);
   Logger.log('Worker ready', 'Worker');
 }
 
