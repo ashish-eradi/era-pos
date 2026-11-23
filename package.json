@@ -1,0 +1,24 @@
+{
+  "name": "era-pos",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "npm@11.5.2",
+  "engines": {
+    "node": "22.16.0",
+    "npm": "11.5.2"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "eslint": "9.39.1",
+    "@eslint/js": "9.39.1",
+    "typescript-eslint": "8.48.0"
+  }
+}
