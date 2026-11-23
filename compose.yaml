@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: era
+      POSTGRES_PASSWORD: era_dev
+      POSTGRES_DB: era_pos
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - era-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "era", "-d", "era_pos"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  era-postgres:

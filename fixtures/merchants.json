@@ -1,0 +1,12 @@
+[
+  {
+    "id": "fixture-in",
+    "name": "Monsoon Stationery",
+    "countryCode": "IN"
+  },
+  {
+    "id": "fixture-us",
+    "name": "Maple Home Goods",
+    "countryCode": "US"
+  }
+]

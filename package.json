@@ -13,7 +13,8 @@
   ],
   "scripts": {
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && npm run typecheck --workspaces --if-present",
+    "build": "npm run build -w @era/contracts && npm run build -w @era/api"
   },
   "devDependencies": {
     "typescript": "5.9.3",
