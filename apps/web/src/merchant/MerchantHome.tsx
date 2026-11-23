@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
 import { CatalogImport } from './CatalogImport';
+import { CashSales } from './CashSales';
 
 type Session = { merchantId: string; role: string; token: string };
 type Branch = { id: string; name: string; timezone: string; catalogDefaults: string[] };
@@ -29,6 +30,7 @@ export function MerchantHome() {
     }}><Field name="code" label="Invitation code" type="password" /></Action> : <>
       <button onClick={() => { setSession(undefined); setBranches([]); setRegisters([]); }}>End local session</button>
       <Action title="Refresh branches" run={async () => { await refresh(session); return 'Branches updated'; }} />
+      {session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}`} token={session.token} />}
       {!branches.length && <p>No assigned branches.</p>}
       {branches.map((branch) => {
         const path = `merchants/${session.merchantId}`;
@@ -51,6 +53,15 @@ export function MerchantHome() {
             }}><Field name="name" label="Register name" /><Field name="reason" label="Reason" /></Action>
             {registers.filter(({ branchId }) => branchId === branch.id).map((register) => <div key={register.id}>
               <p>{register.name} · {register.status}</p>
+              {register.status === 'active' && <Action title="Authorize cash discount" run={async (form) => {
+                const data = values(form);
+                const { approval } = await request<{ approval: string }>(`${path}/registers/${register.id}/cash-discount`, session.token,
+                  { operationId: data.operationId, amount: Number(data.amount) });
+                return `Give the cashier this approval code: ${approval}`;
+              }}>
+                <Field name="operationId" label="Sale ID from counter" />
+                <Field name="amount" label="Discount (minor units)" type="number" />
+              </Action>}
               {register.status !== 'revoked' && <Action title={register.status === 'pending' ? 'Generate activation code' : 'Generate catalog access code'} run={async () => {
                 const { code } = await request<{ code: string }>(`${path}/registers/${register.id}/activation-code`, session.token, {});
                 return `Enter on the register within 10 minutes: ${code}`;

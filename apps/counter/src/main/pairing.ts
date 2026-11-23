@@ -16,6 +16,12 @@ export function apiUrl(path: string): URL {
   return new URL(path, url);
 }
 
+export function catalogCredential(database: DatabaseSync): string {
+  const row = database.prepare("SELECT value FROM register_settings WHERE key = 'catalog-credential'").get();
+  if (typeof row?.value !== 'string') throw new Error('Ask the owner for a register access code');
+  return safeStorage.decryptString(Buffer.from(row.value, 'base64'));
+}
+
 export async function activate(database: DatabaseSync, code: string): Promise<Pairing> {
   if (typeof code !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(code)) throw new Error('Enter a valid activation code');
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows credential encryption is unavailable');

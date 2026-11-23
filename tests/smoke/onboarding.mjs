@@ -131,6 +131,40 @@ export async function checkOnboarding(port, connectionString) {
     await call('devices/catalog', pairingProof, 401, { deviceId });
     assert.deepEqual(await call('devices/catalog', freshProof, 201, { deviceId }), snapshot);
     console.log('Catalog preview, repeatable opening stock, tenant pricing and paired device access passed');
+    const operation = {
+      version: 1, merchantId, branchId: branch.id, registerId: register.id, operationId: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      payload: {
+        kind: 'cash_sale', shiftId: randomUUID(), currency: 'INR',
+        lines: [{ sku: 'NOTE-A5', product: 'A5 notebook', quantity: 1, unitMinor: 12900 }],
+        discountMinor: 100, tenderedMinor: 13000, approval: randomBytes(32).toString('base64url'),
+      },
+    };
+    const approve = `${merchant}/registers/${register.id}/cash-discount`;
+    const approvalRequest = { operationId: operation.operationId, amount: 100 };
+    await call(approve, staff.token, 403, approvalRequest);
+    assert.equal((await call('devices/cash-sales', freshProof, 201, { deviceId, operation })).code, 'invalid_operation');
+    const grant = await call(approve, owner.token, 201, approvalRequest);
+    operation.payload.approval = grant.approval;
+    const verify = { deviceId, ...approvalRequest, approval: grant.approval };
+    await call('devices/cash-discount', freshProof, 403, { ...verify, amount: 101 });
+    await call('devices/cash-discount', freshProof, 201, verify);
+    assert.equal((await call('devices/cash-sales', otherProof, 201, { deviceId: otherDevice, operation })).code, 'register_forbidden');
+    const first = await call('devices/cash-sales', freshProof, 201, { deviceId, operation });
+    assert.equal(first.status, 'committed');
+    const secondAck = await call('devices/cash-sales', freshProof, 201, { deviceId, operation });
+    assert.deepEqual(secondAck, { ...first, status: 'replayed' });
+    const altered = { ...operation, payload: { ...operation.payload, tenderedMinor: 14000 } };
+    assert.equal((await call('devices/cash-sales', freshProof, 201, { deviceId, operation: altered })).code, 'operation_conflict');
+    const remaining = await call('devices/catalog', freshProof, 201, { deviceId });
+    assert.equal(remaining.items[0].onHand, 9);
+    const sales = await call(`${merchant}/cash-sales`, owner.token, 200);
+    assert.equal(sales.length, 1);
+    assert.equal(sales[0].receipt.totalMinor, 12800);
+    assert.equal(sales[0].receipt.approval, undefined);
+    assert.deepEqual(await call(`${otherMerchant}/cash-sales`, otherOwner.token, 200), []);
+    assert.equal((await db.query("SELECT 1 FROM stock_movements WHERE merchant_id = $1 AND kind = 'cash_sale'", [merchantId])).rowCount, 1);
+    console.log('Discount authorization, cash sync replay, single stock decrement and owner isolation passed');
     const directory = await call('platform/trials', admin, 200);
     const entry = directory.find((item) => item.merchantId === merchantId);
     assert.equal(entry.country, 'IN');
@@ -151,6 +185,7 @@ export async function checkOnboarding(port, connectionString) {
       const merchants = rows.map(({ merchant_id }) => merchant_id);
       await db.query('BEGIN');
       for (const table of [
+        'cash_sales', 'cash_discount_approvals',
         'stock_movements', 'catalog_imports', 'branch_catalog',
         'onboarding_audit', 'activation_codes', 'invitations', 'merchant_audit', 'registers',
         'membership_sessions', 'branch_assignments', 'memberships', 'catalog_barcodes', 'branches', 'entitlements', 'trials',
