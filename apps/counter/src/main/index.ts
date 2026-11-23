@@ -5,6 +5,10 @@ import type { StorageStatus } from '../bridge';
 import { openCounterDatabase } from './database';
 import { activate, pairing } from './pairing';
 import { cachedCatalog, refreshCatalog } from './catalog';
+import { cashState, closeShift, commitCash, receiptToPrint, startShift, syncCash } from './cash';
+import { printReceipt } from './print';
+import type { CashInput } from '../bridge';
+import type { IpcMainInvokeEvent } from 'electron';
 
 let database: DatabaseSync | undefined;
 
@@ -45,6 +49,23 @@ async function start(): Promise<void> {
   ipcMain.handle('counter:refresh-catalog', (event) => {
     if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Catalog is restricted to the counter window');
     return refreshCatalog(storage);
+  });
+  function counterOnly(event: IpcMainInvokeEvent) {
+    if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Checkout is restricted to the counter window');
+  }
+  ipcMain.handle('counter:cash-state', (event) => { counterOnly(event); return cashState(storage); });
+  ipcMain.handle('counter:open-shift', (event, amount: number) => { counterOnly(event); return startShift(storage, amount); });
+  ipcMain.handle('counter:close-shift', (event, amount: number) => { counterOnly(event); return closeShift(storage, amount); });
+  ipcMain.handle('counter:cash-sale', (event, input: CashInput) => { counterOnly(event); return commitCash(storage, input); });
+  let syncing: ReturnType<typeof syncCash> | undefined;
+  ipcMain.handle('counter:sync-cash', (event) => {
+    counterOnly(event);
+    syncing ??= syncCash(storage).finally(() => { syncing = undefined; });
+    return syncing;
+  });
+  ipcMain.handle('counter:print-receipt', (event, id: string) => {
+    counterOnly(event);
+    return printReceipt(receiptToPrint(storage, id));
   });
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

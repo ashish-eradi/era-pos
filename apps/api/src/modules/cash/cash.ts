@@ -1,0 +1,136 @@
+import { randomUUID } from 'node:crypto';
+import {
+  BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Headers, Inject, NotFoundException, Param, Post,
+} from '@nestjs/common';
+import { cashAmount, cashSubtotal, isCashReceiptV1 } from '@era/contracts';
+import type { SyncAcknowledgementV1 } from '@era/contracts';
+import type { Pool } from 'pg';
+import { MERCHANT_DATABASE } from '../merchant/merchant.controller';
+import { bearer, digest, owner, record, secret, transaction, uuid } from '../onboarding/shared';
+
+@Controller('v1')
+export class CashController {
+  constructor(@Inject(MERCHANT_DATABASE) private readonly database: Pool) {}
+
+  @Post('merchants/:merchantId/registers/:registerId/cash-discount')
+  approve(@Param('merchantId') merchant: string, @Param('registerId') register: string,
+    @Body() input: unknown, @Headers('authorization') authorization?: string) {
+    return transaction(this.database, async (client) => {
+      const actor = await owner(client, merchant, authorization);
+      const data = record(input);
+      const operationId = uuid(data.operationId, 'operation ID');
+      const amount = data.amount;
+      if (!cashAmount(amount) || !amount) throw new BadRequestException('Enter a positive discount in minor units');
+      const { rows } = await client.query<{ branch_id: string }>(
+        "SELECT branch_id FROM registers WHERE merchant_id = $1 AND id = $2 AND status = 'active' FOR UPDATE", [merchant, register],
+      );
+      if (!rows[0]) throw new NotFoundException();
+      const sale = await client.query('SELECT 1 FROM cash_sales WHERE merchant_id = $1 AND register_id = $2 AND operation_id = $3',
+        [merchant, register, operationId]);
+      if (sale.rowCount) throw new ConflictException('This sale already committed');
+      const approval = secret();
+      await client.query(`
+        INSERT INTO cash_discount_approvals (merchant_id, branch_id, register_id, operation_id, membership_id, digest, amount_minor)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        ON CONFLICT (merchant_id, register_id, operation_id) DO UPDATE SET
+          digest = EXCLUDED.digest, membership_id = EXCLUDED.membership_id, amount_minor = EXCLUDED.amount_minor
+      `, [merchant, rows[0].branch_id, register, operationId, actor, digest(approval), amount]);
+      return { approval };
+    });
+  }
+
+  @Post('devices/cash-discount')
+  async verify(@Body() input: unknown, @Headers('authorization') authorization?: string) {
+    const data = record(input);
+    const deviceId = uuid(data.deviceId, 'device ID');
+    const operationId = uuid(data.operationId, 'operation ID');
+    if (typeof data.approval !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(data.approval) || !cashAmount(data.amount)) {
+      throw new ForbiddenException();
+    }
+    const { rowCount } = await this.database.query(`
+      SELECT 1 FROM registers r JOIN cash_discount_approvals a
+        ON (r.merchant_id, r.branch_id, r.id) = (a.merchant_id, a.branch_id, a.register_id)
+      WHERE r.device_id = $1 AND r.pairing_digest = $2 AND r.status = 'active'
+        AND a.operation_id = $3 AND a.digest = $4 AND a.amount_minor = $5
+    `, [deviceId, bearer(authorization), operationId, digest(data.approval), data.amount]);
+    if (!rowCount) throw new ForbiddenException();
+    return { approved: true };
+  }
+
+  @Post('devices/cash-sales')
+  sale(@Body() input: unknown, @Headers('authorization') authorization?: string): Promise<SyncAcknowledgementV1> {
+    const data = record(input);
+    const device = uuid(data.deviceId, 'device ID');
+    const operation = record(data.operation);
+    const operationId = uuid(operation.operationId, 'operation ID');
+    const credential = bearer(authorization);
+    const receipt = operation.payload;
+    const fail = (code: 'invalid_operation' | 'operation_conflict' | 'register_forbidden'): SyncAcknowledgementV1 =>
+      ({ version: 1, operationId, status: 'rejected', code });
+    const occurredAt = operation.occurredAt;
+    if (operation.version !== 1 || typeof occurredAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(occurredAt) ||
+      !Number.isFinite(Date.parse(occurredAt)) || new Date(occurredAt).toISOString() !== occurredAt || !isCashReceiptV1(receipt)) {
+      return Promise.resolve(fail('invalid_operation'));
+    }
+    const lines = receipt.lines.map(({ sku, product, quantity, unitMinor }) => ({ sku, product, quantity, unitMinor }));
+    const saved = {
+      shiftId: receipt.shiftId, currency: receipt.currency, lines, discountMinor: receipt.discountMinor,
+      tenderedMinor: receipt.tenderedMinor, totalMinor: cashSubtotal(lines) - receipt.discountMinor,
+    };
+    const hash = digest(JSON.stringify([occurredAt, saved, receipt.approval]));
+    return transaction(this.database, async (client) => {
+      const { rows } = await client.query<{ merchant_id: string; branch_id: string; id: string; country_code: string }>(`
+        SELECT r.merchant_id, r.branch_id, r.id, m.country_code FROM registers r JOIN merchants m ON m.id = r.merchant_id
+        WHERE r.device_id = $1 AND r.pairing_digest = $2 AND r.status = 'active' FOR UPDATE OF r
+      `, [device, credential]);
+      const scope = rows[0];
+      if (!scope || scope.merchant_id !== operation.merchantId || scope.branch_id !== operation.branchId || scope.id !== operation.registerId) {
+        return fail('register_forbidden');
+      }
+      const { merchant_id: merchant, branch_id: branch, id: register } = scope;
+      const key = [merchant, register, operationId];
+      const existing = await client.query<{ digest: string; committed_at: Date }>(
+        'SELECT digest, committed_at FROM cash_sales WHERE merchant_id = $1 AND register_id = $2 AND operation_id = $3', key,
+      );
+      if (existing.rows[0]) return existing.rows[0].digest === hash
+        ? { version: 1, operationId, status: 'replayed', committedAt: existing.rows[0].committed_at.toISOString() }
+        : fail('operation_conflict');
+      if (receipt.currency !== (scope.country_code === 'IN' ? 'INR' : 'USD')) return fail('invalid_operation');
+      const products = await client.query('SELECT sku FROM branch_catalog WHERE merchant_id = $1 AND branch_id = $2 AND sku = ANY($3)',
+        [merchant, branch, lines.map(({ sku }) => sku)]);
+      if (products.rowCount !== lines.length) return fail('invalid_operation');
+      if (receipt.discountMinor) {
+        const approval = await client.query(`
+          SELECT 1 FROM cash_discount_approvals
+          WHERE merchant_id = $1 AND register_id = $2 AND operation_id = $3 AND digest = $4 AND amount_minor = $5
+        `, [...key, digest(receipt.approval!), receipt.discountMinor]);
+        if (!approval.rowCount) return fail('invalid_operation');
+      }
+      const inserted = await client.query<{ committed_at: Date }>(`
+        INSERT INTO cash_sales (merchant_id, branch_id, register_id, operation_id, occurred_at, digest, receipt)
+        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING committed_at
+      `, [merchant, branch, register, operationId, occurredAt, hash, JSON.stringify(saved)]);
+      for (const line of [...lines].sort((a, b) => a.sku.localeCompare(b.sku))) {
+        await client.query(`
+          INSERT INTO stock_movements (merchant_id, branch_id, sku, id, kind, quantity)
+          VALUES ($1,$2,$3,$4,'cash_sale',$5)
+        `, [merchant, branch, line.sku, randomUUID(), -line.quantity]);
+      }
+      return { version: 1, operationId, status: 'committed', committedAt: inserted.rows[0].committed_at.toISOString() };
+    });
+  }
+
+  @Get('merchants/:merchantId/cash-sales')
+  sales(@Param('merchantId') merchant: string, @Headers('authorization') authorization?: string) {
+    return transaction(this.database, async (client) => {
+      await owner(client, merchant, authorization);
+      const { rows } = await client.query(`
+        SELECT s.operation_id AS id, s.register_id AS "registerId", b.name AS branch,
+          s.occurred_at AS "occurredAt", s.receipt
+        FROM cash_sales s JOIN branches b ON (b.merchant_id,b.id) = (s.merchant_id,s.branch_id)
+        WHERE s.merchant_id = $1 ORDER BY s.occurred_at DESC, s.operation_id LIMIT 100
+      `, [merchant]);
+      return rows;
+    });
+  }
+}

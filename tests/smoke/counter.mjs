@@ -16,11 +16,29 @@ let activationCount = 0;
 let downloadCount = 0;
 let device;
 let proof;
+let online = false;
+let committed;
+let retries = 0;
 const server = createServer(async (request, response) => {
   let body = '';
   for await (const chunk of request) body += chunk;
   const input = JSON.parse(body);
   assert.equal(request.method, 'POST');
+  if (request.url === '/v1/devices/cash-sales') {
+    assert.equal(input.deviceId, device);
+    assert.equal(request.headers.authorization, `Bearer ${proof}`);
+    if (online && committed) {
+      assert.deepEqual(input.operation, committed);
+      retries++;
+      response.writeHead(201, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ version: 1, operationId: committed.operationId, status: 'replayed', committedAt: committed.occurredAt }));
+      return;
+    }
+    if (online) committed = input.operation;
+    response.writeHead(503);
+    response.end();
+    return;
+  }
   if (request.url === '/v1/devices/catalog') {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
@@ -28,7 +46,7 @@ const server = createServer(async (request, response) => {
     response.writeHead(201, { 'content-type': 'application/json' });
     response.end(JSON.stringify({
       merchantId: 'fixture-in', branchId: 'central', registerId: 'counter-1', currency: 'INR', version: '1',
-      items: [{ sku: 'NOTE-A5', product: 'A5 notebook', barcode: '0012345678905', priceMinor: 12900, onHand: 10, attributes: {} }],
+      items: [{ sku: 'NOTE-A5', product: 'A5 notebook', barcode: '0012345678905', priceMinor: 12900, onHand: 2, attributes: {} }],
     }));
     return;
   }
@@ -91,9 +109,41 @@ async function launch(activate = false) {
         `)) download = false;
         if (page && await evaluate(page.webSocketDebuggerUrl, `
           (() => {
-            const search = document.querySelector('input:not([name])');
-            if (!search || !document.body.textContent.includes('A5 notebook')) return false;
-            return document.body.textContent.includes('0012345678905');
+            const button = (text) => [...document.querySelectorAll('button')].find((control) => control.textContent.trim() === text && !control.disabled);
+            const next = window.checkoutStep ?? 0;
+            const checkout = document.querySelector('[aria-labelledby="checkout-title"]');
+            if (!checkout) return false;
+            const open = button('Open shift');
+            const add = button('Add A5 notebook');
+            const complete = button('Complete cash sale');
+            if (${!online}) {
+              if (next === 0 && open) { window.checkoutStep = 1; open.click(); }
+              if (next === 1 && add) { window.checkoutStep = 2; add.click(); }
+              if (next === 2 && complete) {
+                complete.form.elements.tendered.value = '13000';
+                window.checkoutStep = 3;
+                complete.click();
+              }
+              return checkout.textContent.includes('1 pending') && checkout.textContent.includes('1 on hand') && Boolean(button('Print receipt'));
+            }
+            const sync = button('Sync sales');
+            if (next === 0 && checkout.textContent.includes('1 pending') && checkout.textContent.includes('1 on hand') && button('Reprint receipt') && sync) {
+              window.checkoutStep = 1;
+              sync.click();
+            } else if (next === 1 && checkout.textContent.includes('1 pending') && checkout.querySelector('[role=alert]') && sync) {
+              window.checkoutStep = 2;
+              sync.click();
+            } else if (next === 2 && checkout.textContent.includes('0 pending') && button('Close shift')) {
+              window.checkoutStep = 3;
+              button('Close shift').click();
+            } else if (next === 3 && button('Submit blind count')) {
+              const submit = button('Submit blind count');
+              if (checkout.textContent.includes('Expected')) throw new Error('Expected cash visible before blind count');
+              submit.form.elements.amount.value = '12900';
+              window.checkoutStep = 4;
+              submit.click();
+            }
+            return next === 4 && checkout.textContent.includes('Shift closed. Expected');
           })()
         `)) {
           await evaluate(page.webSocketDebuggerUrl, 'window.close()');
@@ -121,14 +171,22 @@ async function main() {
     const path = join(profile, 'counter.sqlite');
     const db = new DatabaseSync(path, { readOnly: false });
     db.exec("INSERT INTO register_settings VALUES ('smoke-marker', 'persisted')");
+    assert.equal(db.prepare('SELECT count(*) AS count FROM cash_receipts').get().count, 1);
+    assert.equal(db.prepare('SELECT count(*) AS count FROM cash_outbox').get().count, 1);
     db.close();
+    online = true;
     await launch();
     const reopened = new DatabaseSync(path, { readOnly: true });
     assert.equal(reopened.prepare("SELECT value FROM register_settings WHERE key = 'smoke-marker'").get().value, 'persisted');
     assert.equal(activationCount, 1);
     assert.equal(downloadCount, 1);
+    assert.equal(retries, 1);
+    assert.equal(committed.payload.lines[0].quantity, 1);
+    assert.equal(reopened.prepare('SELECT count(*) AS count FROM cash_outbox').get().count, 0);
+    assert.deepEqual({ ...reopened.prepare('SELECT counted_minor, expected_minor FROM cash_shifts').get() },
+      { counted_minor: 12900, expected_minor: 12900 });
     reopened.close();
-    console.log('Counter activation, catalog download and offline SQLite catalog persistence passed');
+    console.log('Offline checkout, one stock decrement, restart, receipt access, lost sync acknowledgement and blind close passed');
   } finally {
     server.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });

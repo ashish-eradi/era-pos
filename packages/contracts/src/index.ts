@@ -3,6 +3,9 @@ export type HealthResponseV1 = {
   status: 'ok' | 'unavailable';
 };
 
+export { cashAmount, cashSubtotal, isCashReceiptV1 } from './cash';
+export type { CashLineV1, CashReceiptV1 } from './cash';
+
 export type CurrencyV1 = 'INR' | 'USD';
 
 export type CatalogSnapshotV1 = {

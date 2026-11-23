@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { CounterBridge, Pairing } from '../bridge';
 import type { FormEvent } from 'react';
 import type { CatalogSnapshotV1 } from '@era/contracts';
+import { Checkout } from './Checkout';
 import './style.css';
 
 declare global {
@@ -19,7 +20,6 @@ function Counter() {
   const [submitting, setSubmitting] = useState(false);
   const [authorized, setAuthorized] = useState(false);
   const [catalog, setCatalog] = useState<CatalogSnapshotV1>();
-  const [query, setQuery] = useState('');
   const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
@@ -61,9 +61,6 @@ function Counter() {
     } finally { setSyncing(false); }
   }
 
-  const filter = query.trim().toLowerCase();
-  const items = catalog?.items.filter(({ barcode, sku, product }) =>
-    [barcode, sku, product].some((value) => value.toLowerCase().includes(filter))) ?? [];
 
   return <main>
     <h1>ERA POS Counter</h1>
@@ -87,15 +84,9 @@ function Counter() {
       </button>
       {catalog && <>
         <p>Published version {catalog.version} · {catalog.items.length} items</p>
-        <label>Search products or scan a barcode <input value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-        {items.length ? <ul>{items.map((item) => <li key={item.sku}>
-          <strong>{item.product}</strong> · {item.sku} · {item.barcode} · {new Intl.NumberFormat(undefined, {
-            style: 'currency', currency: catalog.currency,
-          }).format(item.priceMinor / 100)} · {item.onHand} on hand
-          {Object.entries(item.attributes).map(([key, value]) => <span key={key}> · {key} {value}</span>)}
-        </li>)}</ul> : <p>No matching products.</p>}
       </>}
     </section>}
+    {paired && <Checkout key={paired.registerId} catalog={catalog} reloadCatalog={async () => setCatalog(await window.counter.catalog())} />}
   </main>;
 }
 

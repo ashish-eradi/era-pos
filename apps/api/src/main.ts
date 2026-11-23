@@ -8,6 +8,7 @@ import { MERCHANT_DATABASE, MerchantController } from './modules/merchant/mercha
 import { OnboardingController } from './modules/onboarding/onboarding';
 import { PlatformController } from './modules/onboarding/platform';
 import { CatalogController } from './modules/catalog/catalog';
+import { CashController } from './modules/cash/cash';
 
 const database = openDatabase();
 
@@ -26,7 +27,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController],
+  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController, CashController],
   providers: [{ provide: MERCHANT_DATABASE, useValue: database }],
 })
 class ApiModule {

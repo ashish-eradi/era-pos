@@ -82,6 +82,14 @@ In the merchant workspace, open **Import catalog and opening stock** for the bra
 
 On the paired Windows counter, select **Download catalog**. For a counter paired before catalog access was added, generate a catalog access code for the active register and enter it on the same device. The counter caches the latest catalog in SQLite and can search it offline by product, SKU or barcode. The catalog shows the most recently downloaded stock quantity.
 
+## Run cash checkout
+
+Open a shift with an opening cash amount in minor units. Scan a barcode followed by Enter or search and add an item. Enter tendered cash and complete the sale. SQLite saves the receipt, reduces local stock and queues sync in one transaction. Use **Print receipt** or **Reprint receipt** to open the Windows print dialog from the saved sale. The receipt uses the catalog price captured at checkout. Tax calculation, legally formatted invoices and printer hardware certification remain later pilot work.
+
+For a discount, give the merchant owner the sale ID and amount. The owner authorizes it for that register in the merchant workspace and returns an approval code to the cashier. The counter verifies the code online before accepting discounted cash. Standard cash sales can continue offline.
+
+To close the shift, enter counted cash before viewing the expected amount and variance. Shifts and close counts are kept on the register. The counter retries queued cash sales when it comes online and periodically while sales are pending. **Sync sales** also checks manually. Rejected sales remain stored for review. Catalog updates wait for local sales to sync so a download cannot overwrite pending stock decrements. Owners can open **Cash sales** in the web workspace to view the latest 100 synchronized receipts.
+
 ## Architecture decisions
 
 - Use npm workspaces with one committed lockfile and a shared strict TypeScript configuration. Each app owns its compiler and runtime settings.
