@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
 import { CatalogImport } from './CatalogImport';
 import { CashSales } from './CashSales';
+import { Subscription } from './Subscription';
 import { Inventory } from './Inventory';
 import { DailyClose } from './DailyClose';
 import { ReturnApprovals } from './ReturnApprovals';
@@ -35,6 +36,7 @@ export function MerchantHome() {
     }}><Field name="code" label="Invitation code" type="password" /></Action> : <>
       <button onClick={() => { setSession(undefined); setBranches([]); setRegisters([]); }}>End local session</button>
       <Action title="Refresh branches" run={async () => { await refresh(session); return 'Branches updated'; }} />
+      {session.role === 'owner' && <Subscription path={`merchants/${session.merchantId}`} token={session.token} />}
       {session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}`} token={session.token} />}
       {session.role === 'owner' && <SupportTickets merchantId={session.merchantId} token={session.token} />}
       {session.role === 'owner' && <UpiPayments path={`merchants/${session.merchantId}/upi`} token={session.token} />}

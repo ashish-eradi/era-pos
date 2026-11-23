@@ -12,6 +12,7 @@ import { CashController } from './modules/cash/cash';
 import { ReturnsController } from './modules/cash/returns';
 import { ClosesController } from './modules/cash/closes';
 import { InventoryController } from './modules/catalog/inventory';
+import { BillingController } from './modules/merchant/billing';
 import { SupportController } from './modules/support/support';
 import { PaymentsController } from './modules/payments/payments';
 
@@ -32,7 +33,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController, CashController, ReturnsController, ClosesController, InventoryController, SupportController, PaymentsController],
+  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController, CashController, ReturnsController, ClosesController, InventoryController, BillingController, SupportController, PaymentsController],
   providers: [{ provide: MERCHANT_DATABASE, useValue: database }],
 })
 class ApiModule {

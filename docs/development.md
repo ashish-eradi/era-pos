@@ -124,3 +124,9 @@ Returns use the original price and allocate discounts in minor units across part
 The branch inventory accepts supplier deliveries by reference and stock counts by SKU. An owner or assigned manager approves count variances. If sellable stock moves before approval, take a fresh count. Damaged returns appear separately.
 
 A closed shift syncs after its sales. The server uses synced cash receipts and completed cash returns and exchanges to calculate expected cash. An owner or assigned manager records a reason for a difference. Owners, assigned managers and assigned accountants can download a dated branch CSV in the branch timezone. It includes sales, returns, cash closes, matched settlement lines, provider refunds and register sync status. Settlement lines keep their import timestamp and provider reference.
+
+### ERA billing and merchant closure
+
+Create an operator with the `finance` role to issue ERA invoices, record manual payments by bank reference and renew a fully paid invoice. The subscription dates are UTC calendar dates. Billing status appears in the merchant workspace and the operations console. Renewal and grace keep existing register credentials and offline queues intact.
+
+An `admin` operator starts closure from the billing console. Stop checkout, close and sync all shifts, and check pending and rejected records before revoking each device. For an unreachable device, record the reason and unsynced data risk. Resolve pending returns before revocation. After all devices are revoked, finalize closure and give the merchant owner time to download the generated archive. Merchant sessions remain available for history and export.

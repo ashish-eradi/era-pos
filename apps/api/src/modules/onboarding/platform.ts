@@ -4,6 +4,7 @@ import {
   NotFoundException, Param, Patch, Post, UnauthorizedException,
 } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
+import { allowProvisioning } from '../merchant/subscription-access';
 import { MERCHANT_DATABASE } from '../merchant/merchant.controller';
 import { bearer, defaults, digest, email, record, secret, text, transaction, uuid } from './shared';
 
@@ -114,6 +115,7 @@ export class PlatformController {
   branch(@Param('merchantId') merchantId: string, @Body() input: unknown, @Headers('authorization') authorization?: string) {
     return transaction(this.database, async (client) => {
       const operator = await admin(client, authorization);
+      await allowProvisioning(client,merchantId);
       const data = record(input);
       const name = text(data.name, 'branch name');
       const timezone = text(data.timezone, 'timezone');

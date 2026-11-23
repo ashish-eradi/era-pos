@@ -84,6 +84,8 @@ export async function checkPayments(port, connectionString, provider) {
   const deviceId = randomUUID();
   const proof = randomBytes(32).toString('base64url');
   const token = randomBytes(32).toString('base64url');
+  const workers = Object.fromEntries(['admin','finance','support'].map((role) =>
+    [role,{ id: randomUUID(), token: randomBytes(32).toString('base64url') }]));
   const api = `http://127.0.0.1:${port}/v1`;
   await db.connect();
   async function call(route, expected, body, credential = proof, extra = {}) {
@@ -220,15 +222,67 @@ export async function checkPayments(port, connectionString, provider) {
     assert.equal(report.settlements[0].payment_id, 'pay_test1');
     assert.equal(report.providerRefunds.length, 2);
     console.log('Duplicate delivery, supervised count, replayable cash close and branch reconciliation passed');
+    for (const [role,worker] of Object.entries(workers)) {
+      await db.query('INSERT INTO platform_operators VALUES ($1,$2,$2)', [worker.id,role]);
+      await db.query("INSERT INTO platform_sessions VALUES ($1,$2,now() + interval '1 hour')", [digest(worker.token),worker.id]);
+    }
+    const billing = `platform/billing/${merchant}`;
+    const invoice = { reference: 'ERA-100', amount: 49900, dueDate: '2026-11-01' };
+    const finance = workers.finance.token;
+    const admin = workers.admin.token;
+    await call(`${billing}/invoices`, 403, invoice, workers.support.token);
+    const issued = await call(`${billing}/invoices`, 201, invoice, finance);
+    assert.deepEqual(await call(`${billing}/invoices`, 201, invoice, finance), { id: issued.id, replayed: true });
+    const invoicePath = `${billing}/invoices/${issued.id}`;
+    const partial = { reference: 'bank-partial', amount: 20000 };
+    await call(`${invoicePath}/payments`, 403, partial, workers.support.token);
+    const receipts = await Promise.all([
+      call(`${invoicePath}/payments`, 201, partial, finance),
+      call(`${invoicePath}/payments`, 201, partial, finance),
+    ]);
+    assert.deepEqual(receipts.map(({ replayed }) => replayed).sort(), [false,true]);
+    assert.ok(receipts.every(({ balanceMinor }) => balanceMinor === 29900));
+    const renewal = { paidThrough: '2090-01-01', graceUntil: '2090-01-08' };
+    await call(`${invoicePath}/renew`, 409, renewal, finance);
+    await call(`${invoicePath}/payments`, 409, { reference: 'overpayment', amount: 29901 }, finance);
+    await call(`${invoicePath}/payments`, 201, { reference: 'bank-balance', amount: 29900 }, finance);
+    const queued = { ...sale, operationId: randomUUID(), payload: { ...sale.payload, shiftId: randomUUID() } };
+    await call(`${invoicePath}/renew`, 201, renewal, finance);
+    assert.equal((await call('devices/cash-sales', 201, { deviceId, operation: queued })).status, 'committed');
+    assert.equal((await call(`${invoicePath}/renew`, 201, renewal, finance)).replayed, true);
+    assert.equal((await call(`merchants/${merchant}/subscription`, 200, undefined, token)).status, 'active');
+    await call('devices/returns', 201, { deviceId, id: concurrent.id, action: 'cancel' });
+    await call(`${billing}/closure/start`, 201, { reason: 'Pilot offboarding' }, admin);
+    await call(`${billing}/closure/finish`, 409, {}, admin);
+    const revoke = `${billing}/registers/${register}/revoke`;
+    await call(revoke, 409, { reason: 'Test device missing' }, admin);
+    await call(revoke, 201, { reason: 'Test device missing', acknowledgeUnsyncedRisk: true }, admin);
+    await call('devices/catalog', 401, { deviceId });
+    const closed = await call(`${billing}/closure/finish`, 201, {}, admin);
+    assert.deepEqual(await call(`${billing}/closure/finish`, 201, {}, admin),closed);
+    let archive;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const saved = await call(`merchants/${merchant}/exports/${closed.exportId}`, 200, undefined, token);
+      if (saved.status === 'complete') { archive = saved.result; break; }
+      await new Promise((resolve) => setTimeout(resolve,250));
+    }
+    assert.equal(archive.merchantId, merchant);
+    assert.equal(archive.sales.length, 3);
+    assert.equal(archive.subscriptionPayments.length, 2);
+    assert.equal(JSON.stringify(archive).includes(proof), false);
+    console.log('Finance permissions, payment retries, renewal with queued sales and closure archive passed');
     console.log('UPI status, lost provider responses, signed webhook deduplication, overpayment, partial refunds and settlement matching passed');
   } finally {
     try {
       await db.query('BEGIN');
-      for (const table of ['upi_settlements','upi_refunds','upi_events','upi_attempts','shift_closes','inventory_documents','sale_returns','cash_sales','stock_movements',
+      for (const table of ['subscription_events','subscription_payments','subscription_invoices','subscriptions','merchant_exports','upi_settlements','upi_refunds','upi_events','upi_attempts','shift_closes','inventory_documents','sale_returns','cash_sales','stock_movements',
         'branch_catalog','catalog_barcodes','registers','membership_sessions','memberships','branches']) {
         await db.query(`DELETE FROM ${table} WHERE merchant_id = $1`, [merchant]);
       }
       await db.query('DELETE FROM merchants WHERE id = $1', [merchant]);
+      const workersIds = Object.values(workers).map(({ id }) => id);
+      await db.query('DELETE FROM platform_sessions WHERE operator_id = ANY($1)',[workersIds]);
+      await db.query('DELETE FROM platform_operators WHERE id = ANY($1)',[workersIds]);
       await db.query('COMMIT');
     } finally {
       await db.end();
