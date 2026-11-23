@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 
 const digest = (value) => createHash('sha256').update(value).digest('hex');
@@ -74,6 +75,62 @@ export async function checkOnboarding(port, connectionString) {
     await call('devices/pairing', '', 404, { deviceId, pairingProof: randomBytes(32).toString('base64url') });
     const pairing = await call('devices/pairing', '', 201, { deviceId, pairingProof });
     assert.equal(pairing.registerId, register.id);
+    const csv = await readFile(new URL('../../fixtures/catalog.csv', import.meta.url), 'utf8');
+    const importPath = `${merchant}/branches/${branch.id}/catalog`;
+    const invalid = await call(`${importPath}/preview`, owner.token, 201, { csv: csv.replace('12900', '12.9') });
+    assert.equal(invalid.issues[0].row, 2);
+    await call(`${importPath}/preview`, staff.token, 403, { csv });
+    const draft = await call(`${importPath}/preview`, owner.token, 201, { csv });
+    assert.deepEqual(draft.issues, []);
+    assert.equal(draft.rows.length, 3);
+    assert.equal((await call('devices/catalog', pairingProof, 201, { deviceId })).items.length, 0);
+    await call(`${importPath}/confirm`, owner.token, 400, { csv, digest: 'wrong-digest' });
+    const publication = { csv, digest: draft.digest };
+    assert.deepEqual(await call(`${importPath}/confirm`, owner.token, 201, publication), { version: '1', replayed: false });
+    assert.deepEqual(await call(`${importPath}/confirm`, owner.token, 201, publication), { version: '1', replayed: true });
+    const overwrite = await call(`${importPath}/preview`, owner.token, 201, { csv: csv.replace(',10,', ',99,') });
+    assert.match(overwrite.issues[0].message, /Opening stock/);
+    const snapshot = await call('devices/catalog', pairingProof, 201, { deviceId });
+    assert.equal(snapshot.currency, 'INR');
+    assert.equal(snapshot.version, '1');
+    assert.deepEqual(snapshot.items.map(({ sku, onHand }) => [sku, onHand]), [['NOTE-A5', 10], ['OATS-500', 8], ['TEE-M-NAVY', 5]]);
+    assert.equal(snapshot.items[0].barcode, '0012345678905');
+    assert.equal(snapshot.items[2].attributes.size, 'M');
+    await call('devices/catalog', randomBytes(32).toString('base64url'), 401, { deviceId });
+
+    const other = await call('platform/trials', admin, 201, {
+      ...trial, requestId: randomUUID(), email: `${randomUUID()}@example.test`, country: 'US',
+    });
+    const otherPlatform = `platform/trials/${other.merchantId}`;
+    const otherMerchant = `merchants/${other.merchantId}`;
+    const otherBranch = await call(`${otherPlatform}/branches`, admin, 201, { ...store, timezone: 'America/New_York' });
+    const otherInvite = await call(`${otherPlatform}/owner-invitation`, admin, 201, {});
+    const otherOwner = await call('invitations/accept', '', 201, { code: otherInvite.code });
+    const otherRegister = await call(`${otherMerchant}/branches/${otherBranch.id}/registers`, otherOwner.token, 201,
+      { name: 'US counter', reason: 'Catalog smoke' });
+    const otherActivation = await call(`${otherMerchant}/registers/${otherRegister.id}/activation-code`, otherOwner.token, 201, {});
+    const otherDevice = randomUUID();
+    const otherProof = randomBytes(32).toString('base64url');
+    await call('devices/activate', '', 201, { code: otherActivation.code, deviceId: otherDevice, pairingProof: otherProof });
+    const otherPath = `${otherMerchant}/branches/${otherBranch.id}/catalog`;
+    const otherCsv = csv.replace('12900', '399');
+    await call(`${otherPath}/preview`, owner.token, 401, { csv: otherCsv });
+    const otherDraft = await call(`${otherPath}/preview`, otherOwner.token, 201, { csv: otherCsv });
+    await call(`${otherPath}/confirm`, otherOwner.token, 201, { csv: otherCsv, digest: otherDraft.digest });
+    await call('devices/catalog', otherProof, 401, { deviceId });
+    const otherSnapshot = await call('devices/catalog', otherProof, 201, { deviceId: otherDevice });
+    assert.equal(otherSnapshot.currency, 'USD');
+    assert.equal(otherSnapshot.items[0].barcode, snapshot.items[0].barcode);
+    assert.equal(otherSnapshot.items[0].priceMinor, 399);
+    assert.equal(snapshot.items[0].priceMinor, 12900);
+
+    const access = await call(issue, owner.token, 201, {});
+    await call('devices/activate', '', 401, { code: access.code, deviceId: otherDevice, pairingProof: otherProof });
+    const freshProof = randomBytes(32).toString('base64url');
+    await call('devices/activate', '', 201, { code: access.code, deviceId, pairingProof: freshProof });
+    await call('devices/catalog', pairingProof, 401, { deviceId });
+    assert.deepEqual(await call('devices/catalog', freshProof, 201, { deviceId }), snapshot);
+    console.log('Catalog preview, repeatable opening stock, tenant pricing and paired device access passed');
     const directory = await call('platform/trials', admin, 200);
     const entry = directory.find((item) => item.merchantId === merchantId);
     assert.equal(entry.country, 'IN');
@@ -94,6 +151,7 @@ export async function checkOnboarding(port, connectionString) {
       const merchants = rows.map(({ merchant_id }) => merchant_id);
       await db.query('BEGIN');
       for (const table of [
+        'stock_movements', 'catalog_imports', 'branch_catalog',
         'onboarding_audit', 'activation_codes', 'invitations', 'merchant_audit', 'registers',
         'membership_sessions', 'branch_assignments', 'memberships', 'catalog_barcodes', 'branches', 'entitlements', 'trials',
       ]) await db.query(`DELETE FROM ${table} WHERE merchant_id = ANY($1)`, [merchants]);

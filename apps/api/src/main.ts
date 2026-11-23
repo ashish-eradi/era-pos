@@ -1,11 +1,13 @@
 import 'reflect-metadata';
 import { Controller, Get, Module, ServiceUnavailableException } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { HealthResponseV1 } from '@era/contracts';
 import { openDatabase } from './database';
 import { MERCHANT_DATABASE, MerchantController } from './modules/merchant/merchant.controller';
 import { OnboardingController } from './modules/onboarding/onboarding';
 import { PlatformController } from './modules/onboarding/platform';
+import { CatalogController } from './modules/catalog/catalog';
 
 const database = openDatabase();
 
@@ -24,7 +26,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, MerchantController, OnboardingController, PlatformController],
+  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController],
   providers: [{ provide: MERCHANT_DATABASE, useValue: database }],
 })
 class ApiModule {
@@ -34,7 +36,8 @@ class ApiModule {
 }
 
 async function main(): Promise<void> {
-  const app = await NestFactory.create(ApiModule);
+  const app = await NestFactory.create<NestExpressApplication>(ApiModule);
+  app.useBodyParser('json', { limit: '256kb' });
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3001));
 }

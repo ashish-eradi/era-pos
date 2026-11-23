@@ -13,16 +13,32 @@ import electron from 'electron';
 const profile = mkdtempSync(join(tmpdir(), 'era-pos-counter-'));
 const code = randomBytes(32).toString('base64url');
 let activationCount = 0;
+let downloadCount = 0;
+let device;
+let proof;
 const server = createServer(async (request, response) => {
   let body = '';
   for await (const chunk of request) body += chunk;
   const input = JSON.parse(body);
   assert.equal(request.method, 'POST');
+  if (request.url === '/v1/devices/catalog') {
+    assert.equal(input.deviceId, device);
+    assert.equal(request.headers.authorization, `Bearer ${proof}`);
+    downloadCount++;
+    response.writeHead(201, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({
+      merchantId: 'fixture-in', branchId: 'central', registerId: 'counter-1', currency: 'INR', version: '1',
+      items: [{ sku: 'NOTE-A5', product: 'A5 notebook', barcode: '0012345678905', priceMinor: 12900, onHand: 10, attributes: {} }],
+    }));
+    return;
+  }
   assert.equal(request.url, '/v1/devices/activate');
   assert.equal(input.code, code);
   assert.match(input.deviceId, /^[\da-f-]{36}$/);
   assert.match(input.pairingProof, /^[A-Za-z0-9_-]{43}$/);
   activationCount++;
+  device = input.deviceId;
+  proof = input.pairingProof;
   response.writeHead(201, { 'content-type': 'application/json' });
   response.end(JSON.stringify({ merchantId: 'fixture-in', branchId: 'central', registerId: 'counter-1', deviceId: input.deviceId }));
 });
@@ -43,6 +59,7 @@ async function evaluate(url, expression) {
 }
 
 async function launch(activate = false) {
+  let download = activate;
   const counter = spawn(electron, [resolve('apps/counter'), '--remote-debugging-port=0', `--user-data-dir=${profile}`], {
     env: { ...process.env, ERA_API_ORIGIN: `http://127.0.0.1:${server.address().port}` },
   });
@@ -64,7 +81,21 @@ async function launch(activate = false) {
             return true;
           })()
         `)) activate = false;
-        if (page && await evaluate(page.webSocketDebuggerUrl, 'document.body.textContent.includes("Paired to register counter-1")')) {
+        if (page && download && await evaluate(page.webSocketDebuggerUrl, `
+          (() => {
+            const button = [...document.querySelectorAll('button')].find((control) => control.textContent === 'Download catalog');
+            if (!button || button.disabled) return false;
+            button.click();
+            return true;
+          })()
+        `)) download = false;
+        if (page && await evaluate(page.webSocketDebuggerUrl, `
+          (() => {
+            const search = document.querySelector('input:not([name])');
+            if (!search || !document.body.textContent.includes('A5 notebook')) return false;
+            return document.body.textContent.includes('0012345678905');
+          })()
+        `)) {
           await evaluate(page.webSocketDebuggerUrl, 'window.close()');
           await Promise.race([once(counter, 'exit'), delay(3000)]);
           return;
@@ -95,8 +126,9 @@ async function main() {
     const reopened = new DatabaseSync(path, { readOnly: true });
     assert.equal(reopened.prepare("SELECT value FROM register_settings WHERE key = 'smoke-marker'").get().value, 'persisted');
     assert.equal(activationCount, 1);
+    assert.equal(downloadCount, 1);
     reopened.close();
-    console.log('Counter activation via preload and SQLite pairing persistence passed');
+    console.log('Counter activation, catalog download and offline SQLite catalog persistence passed');
   } finally {
     server.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });

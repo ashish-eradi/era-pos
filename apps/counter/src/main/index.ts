@@ -4,6 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { StorageStatus } from '../bridge';
 import { openCounterDatabase } from './database';
 import { activate, pairing } from './pairing';
+import { cachedCatalog, refreshCatalog } from './catalog';
 
 let database: DatabaseSync | undefined;
 
@@ -30,11 +31,20 @@ async function start(): Promise<void> {
       throw new Error('Storage status is restricted to the counter window');
     }
     const row = storage.prepare('PRAGMA user_version').get();
-    return { schemaVersion: Number(row?.user_version), pairing: pairing(storage) };
+    const catalogAuthorized = !!storage.prepare("SELECT 1 FROM register_settings WHERE key = 'catalog-credential'").get();
+    return { schemaVersion: Number(row?.user_version), pairing: pairing(storage), catalogAuthorized };
   });
   ipcMain.handle('counter:activate', (event, code: string) => {
     if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Activation is restricted to the counter window');
     return activate(storage, code);
+  });
+  ipcMain.handle('counter:catalog', (event) => {
+    if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Catalog is restricted to the counter window');
+    return cachedCatalog(storage);
+  });
+  ipcMain.handle('counter:refresh-catalog', (event) => {
+    if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Catalog is restricted to the counter window');
+    return refreshCatalog(storage);
   });
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

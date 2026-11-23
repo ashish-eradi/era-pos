@@ -5,6 +5,22 @@ export type HealthResponseV1 = {
 
 export type CurrencyV1 = 'INR' | 'USD';
 
+export type CatalogSnapshotV1 = {
+  merchantId: string;
+  branchId: string;
+  registerId: string;
+  currency: CurrencyV1;
+  version: string;
+  items: Array<{
+    sku: string;
+    product: string;
+    barcode: string;
+    priceMinor: number;
+    attributes: Record<string, string>;
+    onHand: number;
+  }>;
+};
+
 export type MoneyV1 = {
   currency: CurrencyV1;
   minorUnits: number;
