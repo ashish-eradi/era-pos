@@ -6,7 +6,9 @@ import { openCounterDatabase } from './database';
 import { activate, pairing } from './pairing';
 import { cachedCatalog, refreshCatalog } from './catalog';
 import { cashState, closeShift, commitCash, receiptToPrint, startShift, syncCash } from './cash';
-import { printReceipt } from './print';
+import { printReceipt, printReturn } from './print';
+import { counterReturn, localReturns } from './returns';
+import type { ReturnRequest } from '@era/contracts';
 import { reportHeartbeat } from './heartbeat';
 import { upi } from './upi';
 import type { CashInput } from '../bridge';
@@ -74,6 +76,17 @@ async function start(): Promise<void> {
     counterOnly(event);
     syncing ??= syncCash(storage).finally(() => { syncing = undefined; heartbeat(); });
     return syncing;
+  });
+  ipcMain.handle('counter:returns', (event) => { counterOnly(event); return localReturns(storage); });
+  ipcMain.handle('counter:change-return', (event, id: string, action: 'create' | 'get' | 'cancel', draft?: ReturnRequest) => {
+    counterOnly(event);
+    return counterReturn(storage,id,action,draft);
+  });
+  ipcMain.handle('counter:print-return', (event, id: string) => {
+    counterOnly(event);
+    const receipt = localReturns(storage).find(({ draft }) => draft.id === id)?.receipt;
+    if (receipt?.status !== 'complete') throw new Error('Completed return not found');
+    return printReturn(receipt);
   });
   ipcMain.handle('counter:print-receipt', (event, id: string) => {
     counterOnly(event);

@@ -9,6 +9,7 @@ import { OnboardingController } from './modules/onboarding/onboarding';
 import { PlatformController } from './modules/onboarding/platform';
 import { CatalogController } from './modules/catalog/catalog';
 import { CashController } from './modules/cash/cash';
+import { ReturnsController } from './modules/cash/returns';
 import { SupportController } from './modules/support/support';
 import { PaymentsController } from './modules/payments/payments';
 
@@ -29,7 +30,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController, CashController, SupportController, PaymentsController],
+  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController, CashController, ReturnsController, SupportController, PaymentsController],
   providers: [{ provide: MERCHANT_DATABASE, useValue: database }],
 })
 class ApiModule {

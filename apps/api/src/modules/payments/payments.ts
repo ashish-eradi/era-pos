@@ -59,6 +59,44 @@ async function refresh(client: PoolClient, merchant: string, operation: string, 
   return { operationId: operation, status: current.status, shortUrl: current.short_url, amountMinor: Number(current.amount_minor) };
 }
 
+
+export async function reserveRefund(client: PoolClient, merchant: string, operation: string, actor: string, id: string, amount: number) {
+  const { rows } = await client.query<Attempt>(`
+    SELECT * FROM upi_attempts WHERE merchant_id = $1 AND operation_id = $2 AND status = 'paid' FOR UPDATE
+  `, [merchant, operation]);
+  const attempt = rows[0];
+  if (!attempt?.payment_id) throw new NotFoundException('Captured UPI payment not found');
+  const prior = await client.query<{ operation_id: string; amount_minor: string; provider_id: string | null; status: string }>(
+    'SELECT operation_id,amount_minor,provider_id,status FROM upi_refunds WHERE merchant_id = $1 AND id = $2', [merchant, id],
+  );
+  if (prior.rows[0]) {
+    if (prior.rows[0].operation_id !== operation || Number(prior.rows[0].amount_minor) !== amount) throw new ConflictException('Refund ID already used');
+    return { payment: attempt.payment_id, provider: prior.rows[0].provider_id, status: prior.rows[0].status };
+  }
+  const sum = await client.query<{ total: string }>(`
+    SELECT COALESCE(sum(amount_minor),0) AS total FROM upi_refunds WHERE merchant_id = $1 AND operation_id = $2 AND status <> 'failed'
+  `, [merchant, operation]);
+  if (Number(sum.rows[0].total) + amount > Number(attempt.amount_minor)) throw new ConflictException('Refund exceeds available captured amount');
+  await client.query(`
+    INSERT INTO upi_refunds (merchant_id,register_id,operation_id,id,amount_minor,requested_by) VALUES ($1,$2,$3,$4,$5,$6)
+  `, [merchant, attempt.register_id, operation, id, amount, actor]);
+  return { payment: attempt.payment_id, provider: null, status: 'pending' };
+}
+
+export async function sendRefund(database: Pool, merchant: string, id: string, amount: number, reserved: Awaited<ReturnType<typeof reserveRefund>>) {
+  if (reserved.status !== 'pending') return { id, status: reserved.status };
+  const refund = reserved.provider ? await razorpay.refundStatus(merchant, reserved.payment, reserved.provider) :
+    await razorpay.refund(merchant, reserved.payment, id, amount);
+  if (refund.amount !== amount || refund.payment_id !== reserved.payment || !/^rfnd_[A-Za-z0-9]+$/.test(refund.id) ||
+    !['pending', 'processed', 'failed'].includes(refund.status)) throw new BadGatewayException('Refund does not match provider response');
+  const result = await database.query<{ status: string }>(`
+    UPDATE upi_refunds SET provider_id = $3, status = CASE WHEN status = 'pending' THEN $4 ELSE status END
+    WHERE merchant_id = $1 AND id = $2 AND (provider_id IS NULL OR provider_id = $3) RETURNING status
+  `, [merchant, id, refund.id, refund.status]);
+  if (!result.rows[0]) throw new ConflictException('Refund provider reference changed');
+  return { id, status: result.rows[0].status };
+}
+
 @Controller('v1')
 export class PaymentsController {
   constructor(@Inject(MERCHANT_DATABASE) private readonly database: Pool) {}
@@ -170,38 +208,12 @@ export class PaymentsController {
     if (!cashAmount(amount) || !amount) throw new BadRequestException('Enter a positive refund amount');
     const reserved = await transaction(this.database, async (client) => {
       const actor = await owner(client, merchant, authorization);
-      const { rows } = await client.query<Attempt>(`
-        SELECT * FROM upi_attempts WHERE merchant_id = $1 AND operation_id = $2 AND status = 'paid' FOR UPDATE
-      `, [merchant, operation]);
-      const attempt = rows[0];
-      if (!attempt?.payment_id) throw new NotFoundException('Captured UPI payment not found');
-      const prior = await client.query<{ operation_id: string; amount_minor: string; provider_id: string | null; status: string }>(
-        'SELECT operation_id,amount_minor,provider_id,status FROM upi_refunds WHERE merchant_id = $1 AND id = $2', [merchant, id],
-      );
-      if (prior.rows[0]) {
-        if (prior.rows[0].operation_id !== operation || Number(prior.rows[0].amount_minor) !== amount) throw new ConflictException('Refund ID already used');
-        return { payment: attempt.payment_id, provider: prior.rows[0].provider_id, status: prior.rows[0].status };
-      }
-      const sum = await client.query<{ total: string }>(`
-        SELECT COALESCE(sum(amount_minor),0) AS total FROM upi_refunds WHERE merchant_id = $1 AND operation_id = $2 AND status <> 'failed'
-      `, [merchant, operation]);
-      if (Number(sum.rows[0].total) + amount > Number(attempt.amount_minor)) throw new ConflictException('Refund exceeds available captured amount');
-      await client.query(`
-        INSERT INTO upi_refunds (merchant_id,register_id,operation_id,id,amount_minor,requested_by) VALUES ($1,$2,$3,$4,$5,$6)
-      `, [merchant, attempt.register_id, operation, id, amount, actor]);
-      return { payment: attempt.payment_id, provider: null, status: 'pending' };
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [merchant + '/return/' + id]);
+      const linked = await client.query('SELECT 1 FROM sale_returns WHERE merchant_id = $1 AND id = $2', [merchant, id]);
+      if (linked.rowCount) throw new ConflictException('Manage linked refunds through the return');
+      return reserveRefund(client, merchant, operation, actor, id, amount);
     });
-    if (reserved.status !== 'pending') return { id, status: reserved.status };
-    const refund = reserved.provider ? await razorpay.refundStatus(merchant, reserved.payment, reserved.provider) :
-      await razorpay.refund(merchant, reserved.payment, id, amount);
-    if (refund.amount !== amount || refund.payment_id !== reserved.payment || !/^rfnd_[A-Za-z0-9]+$/.test(refund.id) ||
-      !['pending', 'processed', 'failed'].includes(refund.status)) throw new BadGatewayException('Refund does not match provider response');
-    const result = await this.database.query<{ status: string }>(`
-      UPDATE upi_refunds SET provider_id = $3, status = CASE WHEN status = 'pending' THEN $4 ELSE status END
-      WHERE merchant_id = $1 AND id = $2 AND (provider_id IS NULL OR provider_id = $3) RETURNING status
-    `, [merchant, id, refund.id, refund.status]);
-    if (!result.rows[0]) throw new ConflictException('Refund provider reference changed');
-    return { id, status: result.rows[0].status };
+    return sendRefund(this.database, merchant, id, amount, reserved);
   }
 
   @Post('merchants/:merchantId/upi/settlements')

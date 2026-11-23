@@ -112,3 +112,9 @@ Open an incident for a stale register and assign it to yourself. In the merchant
 - Run local PostgreSQL with Docker Compose. The API owns versioned SQL migrations. The worker uses a separate entry point in the same workspace.
 - Keep SQLite and its migrations in the counter main process. The React renderer talks to it through a typed preload bridge.
 - Keep merchant and platform routes in one React app. The API owns authorization. Share versioned payload schemas through `packages/contracts`.
+
+### Receipt returns and exchanges
+
+Sync the original sale, open a shift, and request a return on the counter using the receipt ID and SKU. An owner or assigned manager approves it in the merchant workspace. The counter checks the result and can print the completed return. For a cash difference, the cashier handles cash on completion. If a UPI refund response is delayed, use **Check provider refund** on the original request. A shift with an unresolved return stays open. Download the catalog after syncing to pick up current stock.
+
+Returns use the original price and allocate discounts in minor units across partial quantities. Current sales have zero captured tax. Damaged items are recorded separately from sellable stock.

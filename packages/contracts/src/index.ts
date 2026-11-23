@@ -53,3 +53,4 @@ export type SyncAcknowledgementV1 = {
   | { status: 'rejected'; code: 'invalid_operation' | 'operation_conflict' | 'register_forbidden' }
   | { status: 'retry'; code: 'temporarily_unavailable' }
 );
+export type { ReturnReceipt, ReturnRequest, ReturnSelection } from './returns';

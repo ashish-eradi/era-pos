@@ -168,11 +168,36 @@ export async function checkPayments(port, connectionString, provider) {
     const dashboard = await call(path, 200, undefined, token);
     assert.equal(dashboard.attempts.find((candidate) => candidate.operationId === second).overpayment, false);
     assert.equal((await call('devices/catalog', 201, { deviceId })).items[0].onHand, 0);
+    const returns = `merchants/${merchant}/branches/${branch}/returns`;
+    const shiftId = randomUUID();
+    const createReturn = (saleId, disposition, extra = {}) => ({
+      id: randomUUID(), deviceId, action: 'create', shiftId, saleId, reason: 'Smoke test',
+      lines: [{ sku: 'NOTE', quantity: 1, disposition }], ...extra,
+    });
+    const approve = (item, status = 201) => call(`${returns}/${item.id}/approve`, status, {}, token);
+    const cash = createReturn(id, 'damaged', { replacement: { sku: 'NOTE', quantity: 1 } });
+    const concurrent = createReturn(id, 'sellable');
+    await call('devices/returns', 201, concurrent);
+    assert.equal((await call('devices/returns', 201, cash)).differenceMinor, 0);
+    await call(`${returns}/${cash.id}/approve`, 401, {});
+    assert.equal((await approve(cash)).status, 'complete');
+    assert.equal((await approve(cash)).status, 'complete');
+    await approve(concurrent, 409);
+    assert.equal((await call('devices/catalog', 201, { deviceId })).items[0].onHand, -1);
+    const upiReturn = createReturn(second, 'sellable');
+    await call('devices/returns', 201, upiReturn);
+    await approve(upiReturn, 502);
+    assert.equal((await call('devices/returns', 201, { deviceId, id: upiReturn.id, action: 'get' })).status, 'pending_refund');
+    assert.equal((await approve(upiReturn)).status, 'complete');
+    assert.equal((await approve(upiReturn)).status, 'complete');
+    assert.equal((await call('devices/catalog', 201, { deviceId })).items[0].onHand, 0);
+    assert.equal((await call(returns, 200, undefined, token)).length, 3);
+    console.log('Receipt-linked exchange, damaged stock, approval replay, quantity limits and UPI return passed');
     console.log('UPI status, lost provider responses, signed webhook deduplication, overpayment, partial refunds and settlement matching passed');
   } finally {
     try {
       await db.query('BEGIN');
-      for (const table of ['upi_settlements','upi_refunds','upi_events','upi_attempts','cash_sales','stock_movements',
+      for (const table of ['upi_settlements','upi_refunds','upi_events','upi_attempts','sale_returns','cash_sales','stock_movements',
         'branch_catalog','catalog_barcodes','registers','membership_sessions','memberships','branches']) {
         await db.query(`DELETE FROM ${table} WHERE merchant_id = $1`, [merchant]);
       }

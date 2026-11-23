@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
 import { CatalogImport } from './CatalogImport';
 import { CashSales } from './CashSales';
+import { ReturnApprovals } from './ReturnApprovals';
 import { SupportTickets } from './SupportTickets';
 import { UpiPayments } from './UpiPayments';
 
@@ -41,6 +42,7 @@ export function MerchantHome() {
         return <div key={branch.id}>
           <h3>{branch.name}</h3>
           <p>{branch.timezone}{branch.catalogDefaults.length > 0 && ` · Suggested catalog attributes: ${branch.catalogDefaults.join(', ')}`}</p>
+          {['owner', 'manager'].includes(session.role) && <ReturnApprovals path={`${path}/branches/${branch.id}/returns`} token={session.token} />}
           {session.role === 'owner' && <>
             <CatalogImport path={`${path}/branches/${branch.id}/catalog`} token={session.token} />
             <Action title="Invite branch staff" run={async (form) => {
