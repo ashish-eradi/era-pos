@@ -22,6 +22,8 @@ let retries = 0;
 let heartbeats = 0;
 let upiOperation;
 let recordedUpi = 0;
+let syncedCloses = 0;
+const recoveredId = 'e31654c1-7917-47d0-8f8f-333333333333';
 const server = createServer(async (request, response) => {
   let body = '';
   for await (const chunk of request) body += chunk;
@@ -71,9 +73,22 @@ const server = createServer(async (request, response) => {
     response.end();
     return;
   }
+  if (request.url === '/v1/devices/recovery-receipts') {
+    assert.equal(input.deviceId, device);
+    assert.equal(request.headers.authorization,`Bearer ${proof}`);
+    const recovered = {
+      ...committed, registerId: 'old-counter', operationId: recoveredId,
+      payload: { ...committed.payload, discountMinor: 200, totalMinor: 12700 },
+    };
+    response.writeHead(201, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ receipts: [committed,recovered] }));
+    return;
+  }
   if (request.url === '/v1/devices/shift-close') {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
+    assert.equal(input.receiptCount, 2);
+    syncedCloses++;
     response.writeHead(201, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ id: input.id, replayed: false }));
     return;
@@ -117,7 +132,10 @@ async function evaluate(url, expression) {
 
 async function launch(activate = false) {
   let download = activate;
-  const counter = spawn(electron, [resolve('apps/counter'), '--remote-debugging-port=0', `--user-data-dir=${profile}`], {
+  const packaged = process.env.ERA_SMOKE_COUNTER_EXE;
+  const args = [...(packaged ? [] : [resolve('apps/counter')]), '--remote-debugging-port=0', `--user-data-dir=${profile}`];
+  const counter = spawn(packaged ?? electron,args, {
+
     env: { ...process.env, ERA_API_ORIGIN: `http://127.0.0.1:${server.address().port}` },
   });
   let log = '';
@@ -194,7 +212,14 @@ async function launch(activate = false) {
               window.checkoutStep = 8;
               submit.click();
             }
-            return next === 8 && checkout.textContent.includes('Shift closed. Expected');
+            if (next === 8 && checkout.textContent.includes('Shift closed. Expected') && sync) {
+              window.checkoutStep = 9;
+              sync.click();
+            } else if (next === 9 && checkout.textContent.includes('0 pending') && button('Recover synced branch receipts')) {
+              window.checkoutStep = 10;
+              button('Recover synced branch receipts').click();
+            }
+            return next === 10 && document.body.textContent.includes('Receipt recovery finished');
           })()
         `)) {
           await evaluate(page.webSocketDebuggerUrl, 'window.close()');
@@ -221,6 +246,8 @@ async function main() {
     await launch(true);
     const path = join(profile, 'counter.sqlite');
     const db = new DatabaseSync(path, { readOnly: false });
+    const { maintenanceReady } = await import('../../apps/counter/dist/main/recovery.js');
+    assert.throws(() => maintenanceReady(db), /Close the active shift/);
     db.exec("INSERT INTO register_settings VALUES ('smoke-marker', 'persisted')");
     assert.equal(db.prepare('SELECT count(*) AS count FROM cash_receipts').get().count, 1);
     assert.equal(db.prepare('SELECT count(*) AS count FROM cash_outbox').get().count, 1);
@@ -234,13 +261,26 @@ async function main() {
     assert.ok(heartbeats >= 2);
     assert.equal(retries, 1);
     assert.equal(recordedUpi, 1);
+    assert.equal(syncedCloses, 1);
+    assert.ok(reopened.prepare('SELECT synced_at FROM cash_shifts').get().synced_at);
+    assert.equal(reopened.prepare('SELECT count(*) AS count FROM recovered_receipts').get().count, 2);
+    assert.ok(reopened.prepare('SELECT id FROM recovered_receipts WHERE id = ?').get(recoveredId));
     assert.equal(reopened.prepare('SELECT count(*) AS count FROM cash_receipts').get().count, 2);
     assert.equal(committed.payload.lines[0].quantity, 1);
     assert.equal(reopened.prepare('SELECT count(*) AS count FROM cash_outbox').get().count, 0);
     assert.deepEqual({ ...reopened.prepare('SELECT counted_minor, expected_minor FROM cash_shifts').get() },
       { counted_minor: 12900, expected_minor: 12900 });
+    const { backupCounter } = await import('../../apps/counter/dist/main/recovery.js');
+    maintenanceReady(reopened);
+    const backupPath = join(profile,'rehearsal.sqlite');
+    backupCounter(reopened,backupPath);
+    const backup = new DatabaseSync(backupPath,{ readOnly: true });
+    try {
+      assert.equal(backup.prepare('PRAGMA integrity_check').get().integrity_check,'ok');
+      assert.equal(backup.prepare('SELECT count(*) AS count FROM cash_receipts').get().count,2);
+    } finally { backup.close(); }
     reopened.close();
-    console.log('Offline cash replay, paid UPI receipt, stock changes and cash-only blind close passed');
+    console.log('Offline cash replay, paid UPI receipt, closed shift sync, receipt recovery and backup passed');
   } finally {
     server.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });

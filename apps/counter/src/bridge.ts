@@ -1,4 +1,4 @@
-import type { CashReceiptV1, CatalogSnapshotV1, ReturnReceipt, ReturnRequest, SyncRequestV1 } from '@era/contracts';
+import type { CashLineV1, CashReceiptV1, CatalogSnapshotV1, ReturnReceipt, ReturnRequest, SyncRequestV1 } from '@era/contracts';
 
 export type CashInput = {
   operationId: string; shiftId: string; catalogVersion: string; lines: Array<{ sku: string; quantity: number }>;
@@ -21,7 +21,15 @@ export type CashState = {
 export type Pairing = { merchantId: string; branchId: string; registerId: string; deviceId: string };
 export type StorageStatus = { schemaVersion: number; pairing?: Pairing; catalogAuthorized: boolean };
 
+export type RecoveredReceipt = {
+  id: string; registerId: string; occurredAt: string; currency: CashReceiptV1['currency']; lines: CashLineV1[];
+};
+
 export interface CounterBridge {
+  backup(forUpdate: boolean): Promise<boolean>;
+  recoveryHistory(id?: string): Promise<RecoveredReceipt[]>;
+  recoverReceipts(): Promise<RecoveredReceipt[]>;
+  printRecoveredReceipt(register: string, receipt: string): Promise<void>;
   storageStatus(): Promise<StorageStatus>;
   activate(code: string): Promise<Pairing>;
   catalog(): Promise<CatalogSnapshotV1 | undefined>;

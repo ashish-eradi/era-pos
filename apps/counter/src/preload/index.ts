@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { CounterBridge } from '../bridge';
 
 const bridge: CounterBridge = {
+  backup: (forUpdate) => ipcRenderer.invoke('counter:backup',forUpdate),
+  recoveryHistory: (id) => ipcRenderer.invoke('counter:recovery-history',id),
+  recoverReceipts: () => ipcRenderer.invoke('counter:recover-receipts'),
+  printRecoveredReceipt: (register,id) => ipcRenderer.invoke('counter:print-recovered-receipt',register,id),
   storageStatus: () => ipcRenderer.invoke('counter:storage-status'),
   activate: (code) => ipcRenderer.invoke('counter:activate', code),
   catalog: () => ipcRenderer.invoke('counter:catalog'),

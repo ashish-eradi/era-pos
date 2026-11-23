@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { StorageStatus } from '../bridge';
+import { backupCounter, maintenanceReady, recoverReceipts, recoveredReceipt, recoveryHistory } from './recovery';
 import { openCounterDatabase } from './database';
 import { activate, pairing } from './pairing';
 import { cachedCatalog, refreshCatalog } from './catalog';
@@ -66,6 +67,39 @@ async function start(): Promise<void> {
   function counterOnly(event: IpcMainInvokeEvent) {
     if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Checkout is restricted to the counter window');
   }
+  let backingUp = false;
+  ipcMain.handle('counter:backup', async (event, forUpdate: boolean) => {
+    counterOnly(event);
+    if (backingUp) throw new Error('A backup is already in progress');
+    if (forUpdate === true) maintenanceReady(storage);
+    backingUp = true;
+    try {
+      const stamp = new Date().toISOString().replace(/[:.]/g,'-');
+      const result = await dialog.showSaveDialog(window,{
+        title: 'Save register backup', defaultPath: `era-counter-${stamp}.sqlite`,
+        filters: [{ name: 'SQLite backup', extensions: ['sqlite'] }],
+      });
+      if (result.canceled || !result.filePath) return false;
+      if (forUpdate === true) maintenanceReady(storage);
+      backupCounter(storage,result.filePath);
+      if (forUpdate === true) app.quit();
+      return true;
+    } finally { backingUp = false; }
+  });
+  ipcMain.handle('counter:recovery-history', (event, id?: string) => {
+    counterOnly(event);
+    return recoveryHistory(storage, id);
+  });
+  let recovering: ReturnType<typeof recoverReceipts> | undefined;
+  ipcMain.handle('counter:recover-receipts', (event) => {
+    counterOnly(event);
+    recovering ??= recoverReceipts(storage).finally(() => { recovering = undefined; });
+    return recovering;
+  });
+  ipcMain.handle('counter:print-recovered-receipt', (event, register: string, id: string) => {
+    counterOnly(event);
+    return printReceipt(recoveredReceipt(storage,register,id));
+  });
   ipcMain.handle('counter:cash-state', (event) => { counterOnly(event); return cashState(storage); });
   ipcMain.handle('counter:open-shift', (event, amount: number) => { counterOnly(event); return startShift(storage, amount); });
   ipcMain.handle('counter:close-shift', (event, amount: number) => { counterOnly(event); return closeShift(storage, amount); });

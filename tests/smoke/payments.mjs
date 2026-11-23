@@ -100,6 +100,7 @@ export async function checkPayments(port, connectionString, provider) {
   }
   try {
     await db.query("INSERT INTO merchants (id,name,country_code) VALUES ($1,'Payment Smoke','IN')", [merchant]);
+    await db.query("INSERT INTO entitlements (merchant_id,plan_code,register_limit) VALUES ($1,'pilot',1)", [merchant]);
     await db.query("INSERT INTO branches (merchant_id,id,name,timezone) VALUES ($1,$2,'Store','Asia/Kolkata')", [merchant, branch]);
     await db.query("INSERT INTO memberships VALUES ($1,'owner','smoke','owner',true)", [merchant]);
     await db.query("INSERT INTO membership_sessions (token_digest,merchant_id,membership_id,expires_at) VALUES ($1,$2,'owner',now() + interval '1 hour')", [digest(token), merchant]);
@@ -249,15 +250,34 @@ export async function checkPayments(port, connectionString, provider) {
     const queued = { ...sale, operationId: randomUUID(), payload: { ...sale.payload, shiftId: randomUUID() } };
     await call(`${invoicePath}/renew`, 201, renewal, finance);
     assert.equal((await call('devices/cash-sales', 201, { deviceId, operation: queued })).status, 'committed');
+    assert.deepEqual(await call('devices/shift-close', 201, {
+      ...close, id: queued.payload.shiftId, openedAt: queued.occurredAt, closedAt: new Date().toISOString(),
+      floatMinor: 0, countedMinor: 10000, receiptCount: 1,
+    }), { id: queued.payload.shiftId, replayed: false });
     assert.equal((await call(`${invoicePath}/renew`, 201, renewal, finance)).replayed, true);
     assert.equal((await call(`merchants/${merchant}/subscription`, 200, undefined, token)).status, 'active');
     await call('devices/returns', 201, { deviceId, id: concurrent.id, action: 'cancel' });
-    await call(`${billing}/closure/start`, 201, { reason: 'Pilot offboarding' }, admin);
-    await call(`${billing}/closure/finish`, 409, {}, admin);
     const revoke = `${billing}/registers/${register}/revoke`;
     await call(revoke, 409, { reason: 'Test device missing' }, admin);
     await call(revoke, 201, { reason: 'Test device missing', acknowledgeUnsyncedRisk: true }, admin);
     await call('devices/catalog', 401, { deviceId });
+    await call('devices/recovery-receipts', 401, { deviceId });
+    const replacementDevice = randomUUID();
+    const replacementProof = randomBytes(32).toString('base64url');
+    const replacement = await call(`${branchPath}/registers`, 201, { name: 'Replacement', reason: 'Restore drill' }, token);
+    const replacementRegister = replacement.id;
+    const activation = await call(`merchants/${merchant}/registers/${replacementRegister}/activation-code`, 201, {}, token);
+    await call('devices/activate', 201, { code: activation.code, deviceId: replacementDevice, pairingProof: replacementProof });
+
+    const recovery = await call('devices/recovery-receipts', 201, { deviceId: replacementDevice }, replacementProof);
+    assert.equal(recovery.receipts.length, 3);
+    assert.ok(recovery.receipts.every((receipt) => receipt.registerId === register && receipt.payload.kind === 'cash_sale'));
+    const page = recovery.receipts.at(-1);
+    assert.deepEqual((await call('devices/recovery-receipts', 201, { deviceId: replacementDevice,
+      cursor: { registerId: page.registerId, operationId: page.operationId } }, replacementProof)).receipts, []);
+    await call(`${billing}/closure/start`, 201, { reason: 'Pilot offboarding' }, admin);
+    await call(`${billing}/closure/finish`, 409, {}, admin);
+    await call(`${billing}/registers/${replacementRegister}/revoke`, 201, { reason: 'Recovery verified', acknowledgeUnsyncedRisk: true }, admin);
     const closed = await call(`${billing}/closure/finish`, 201, {}, admin);
     assert.deepEqual(await call(`${billing}/closure/finish`, 201, {}, admin),closed);
     let archive;
@@ -276,7 +296,7 @@ export async function checkPayments(port, connectionString, provider) {
     try {
       await db.query('BEGIN');
       for (const table of ['subscription_events','subscription_payments','subscription_invoices','subscriptions','merchant_exports','upi_settlements','upi_refunds','upi_events','upi_attempts','shift_closes','inventory_documents','sale_returns','cash_sales','stock_movements',
-        'branch_catalog','catalog_barcodes','registers','membership_sessions','memberships','branches']) {
+        'branch_catalog','catalog_barcodes','activation_codes','merchant_audit','registers','entitlements','membership_sessions','memberships','branches']) {
         await db.query(`DELETE FROM ${table} WHERE merchant_id = $1`, [merchant]);
       }
       await db.query('DELETE FROM merchants WHERE id = $1', [merchant]);
