@@ -1,0 +1,26 @@
+:root {
+  color: #16281f;
+  background: #edf3ef;
+  font: 1rem/1.55 system-ui, sans-serif;
+}
+
+body { margin: 0; }
+
+main {
+  max-width: 46rem;
+  margin: clamp(2rem, 8vw, 7rem) auto;
+  padding: 2rem clamp(1rem, 5vw, 3rem);
+}
+
+h1 { line-height: 1.1; }
+
+nav { display: flex; flex-wrap: wrap; gap: 1rem; margin-block: 1.5rem; }
+
+a { color: #176448; }
+
+section {
+  background: white;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid #cbdad0;
+  border-radius: .75rem;
+}

@@ -28,6 +28,16 @@ In a second terminal, run `npm.cmd run worker -w @era/api` and look for `Worker 
 
 Stop the API and worker with Ctrl+C. Run `docker compose down` to stop PostgreSQL and keep its data volume.
 
+## Run the web and counter shells
+
+```powershell
+npm.cmd run dev:web
+npm.cmd run build -w @era/counter
+npm.cmd run start:counter
+```
+
+Run the web and counter commands in separate terminals. Open the URL printed by Vite to switch between the merchant and operations shells. The counter displays the local SQLite schema version after startup. Quit and reopen it to reuse the database in Electron’s user data directory.
+
 ## Architecture decisions
 
 - Use npm workspaces with one committed lockfile and a shared strict TypeScript configuration. Each app owns its compiler and runtime settings.
