@@ -1,0 +1,29 @@
+{
+  "request": {
+    "version": 1,
+    "merchantId": "fixture-in",
+    "branchId": "central",
+    "registerId": "counter-1",
+    "operationId": "e408513c-795d-4e43-bd0d-fa33802e8a43",
+    "occurredAt": "2026-11-23T08:15:30.000Z",
+    "payload": { "total": { "currency": "INR", "minorUnits": 12900 } }
+  },
+  "committed": {
+    "version": 1,
+    "operationId": "e408513c-795d-4e43-bd0d-fa33802e8a43",
+    "status": "committed",
+    "committedAt": "2026-11-23T08:15:33.000Z"
+  },
+  "replayed": {
+    "version": 1,
+    "operationId": "e408513c-795d-4e43-bd0d-fa33802e8a43",
+    "status": "replayed",
+    "committedAt": "2026-11-23T08:15:33.000Z"
+  },
+  "conflict": {
+    "version": 1,
+    "operationId": "e408513c-795d-4e43-bd0d-fa33802e8a43",
+    "status": "rejected",
+    "code": "operation_conflict"
+  }
+}

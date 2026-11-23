@@ -57,6 +57,16 @@ The API smoke check applies the migrations twice, seeds twice, verifies the fixt
 
 The Foundation workflow runs the PostgreSQL smoke check on Ubuntu and the Electron smoke check on Windows. Its two jobs appear on pushes to `team/ed` and on pull requests.
 
+## Merchant scope and sync contracts
+
+Merchant routes under `/v1/merchants/:merchantId` require an active membership and an unexpired, unrevoked bearer session for that merchant. Store only the SHA-256 digest of a random 32-byte base64url token. The API smoke check provisions short-lived sessions in synthetic records. Merchant invitations and session issuance belong to onboarding.
+
+Owners see all branches, can reserve a register within the merchant allowance, and can request and retrieve a merchant export. Other roles see their assigned branches. A register reservation starts in `pending` and records the actor, branch, register and reason in the same database transaction. Export jobs use the merchant ID from the stored job to select branches and barcode assignments. The API checks the merchant again when retrieving the result.
+
+See `packages/contracts/fixtures/sync-v1.json` for the version 1 envelope and acknowledgements. Use an RFC 3339 UTC timestamp with milliseconds and generate the operation UUID once, when the local operation and outbox entry commit. Keep the original envelope on retry. The cloud must verify the authenticated register belongs to the merchant and branch before applying the operation. Deduplicate by merchant, register and operation ID. Return the original commit timestamp on a matching replay and reject a changed envelope for an existing key. Send a committed acknowledgement only after the database transaction commits. Keep the operation queued after transient errors and surface rejected operations for review.
+
+Money uses safe integer minor units. INR and USD use two decimal places. Apply round-half-away-from-zero when a calculation must convert a fractional minor unit into a payable line value, and sum the rounded line values. Payment and receipt calculations must use one currency per transaction. Checkout will define its operation-specific payload and apply the contracts.
+
 ## Architecture decisions
 
 - Use npm workspaces with one committed lockfile and a shared strict TypeScript configuration. Each app owns its compiler and runtime settings.

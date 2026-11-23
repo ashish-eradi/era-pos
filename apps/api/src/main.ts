@@ -3,6 +3,7 @@ import { Controller, Get, Module, ServiceUnavailableException } from '@nestjs/co
 import { NestFactory } from '@nestjs/core';
 import type { HealthResponseV1 } from '@era/contracts';
 import { openDatabase } from './database';
+import { MERCHANT_DATABASE, MerchantController } from './modules/merchant/merchant.controller';
 
 const database = openDatabase();
 
@@ -20,7 +21,10 @@ class HealthController {
   }
 }
 
-@Module({ controllers: [HealthController] })
+@Module({
+  controllers: [HealthController, MerchantController],
+  providers: [{ provide: MERCHANT_DATABASE, useValue: database }],
+})
 class ApiModule {
   async onApplicationShutdown(): Promise<void> {
     await database.end();
