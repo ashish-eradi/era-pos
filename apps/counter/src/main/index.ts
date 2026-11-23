@@ -8,6 +8,7 @@ import { cachedCatalog, refreshCatalog } from './catalog';
 import { cashState, closeShift, commitCash, receiptToPrint, startShift, syncCash } from './cash';
 import { printReceipt } from './print';
 import { reportHeartbeat } from './heartbeat';
+import { upi } from './upi';
 import type { CashInput } from '../bridge';
 import type { IpcMainInvokeEvent } from 'electron';
 
@@ -67,6 +68,7 @@ async function start(): Promise<void> {
   ipcMain.handle('counter:open-shift', (event, amount: number) => { counterOnly(event); return startShift(storage, amount); });
   ipcMain.handle('counter:close-shift', (event, amount: number) => { counterOnly(event); return closeShift(storage, amount); });
   ipcMain.handle('counter:cash-sale', (event, input: CashInput) => { counterOnly(event); return commitCash(storage, input); });
+  ipcMain.handle('counter:upi', (event, input?: CashInput) => { counterOnly(event); return upi(storage, input); });
   let syncing: ReturnType<typeof syncCash> | undefined;
   ipcMain.handle('counter:sync-cash', (event) => {
     counterOnly(event);

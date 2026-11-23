@@ -20,6 +20,8 @@ export async function refreshCatalog(database: DatabaseSync): Promise<CatalogSna
   `).get(identity.registerId, identity.registerId);
   const before = checkoutState();
   if (before?.queued) throw new Error('Sync or resolve saved sales before downloading the catalog');
+  const hasUpi = () => database.prepare("SELECT 1 FROM register_settings WHERE key = 'upi-checkout'").get();
+  if (hasUpi()) throw new Error('Finish the UPI attempt before downloading the catalog');
   const response = await fetch(apiUrl('/v1/devices/catalog'), {
     method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15_000),
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
@@ -35,7 +37,7 @@ export async function refreshCatalog(database: DatabaseSync): Promise<CatalogSna
   }
   const current = cachedCatalog(database);
   const after = checkoutState();
-  if (after?.queued || after?.last !== before?.last) throw new Error('Checkout changed during the download. Try again');
+  if (after?.queued || after?.last !== before?.last || hasUpi()) throw new Error('Checkout changed during the download. Try again');
   if (current && BigInt(current.version) > BigInt(snapshot.version)) return current;
   database.prepare(`
     INSERT INTO register_settings VALUES ('catalog-snapshot', ?)

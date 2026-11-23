@@ -20,6 +20,8 @@ let online = false;
 let committed;
 let retries = 0;
 let heartbeats = 0;
+let upiOperation;
+let recordedUpi = 0;
 const server = createServer(async (request, response) => {
   let body = '';
   for await (const chunk of request) body += chunk;
@@ -34,9 +36,29 @@ const server = createServer(async (request, response) => {
     response.end('{"received":true}');
     return;
   }
+  if (request.url === '/v1/devices/upi') {
+    assert.equal(input.deviceId, device);
+    assert.equal(request.headers.authorization, `Bearer ${proof}`);
+    if (input.amount !== undefined) {
+      assert.equal(input.amount, 12900);
+      upiOperation = input.operationId;
+    } else assert.equal(input.operationId, upiOperation);
+    response.writeHead(201, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ operationId: upiOperation, status: input.amount ? 'pending' : 'paid',
+      amountMinor: 12900, shortUrl: 'https://rzp.io/i/counter-test' }));
+    return;
+  }
   if (request.url === '/v1/devices/cash-sales') {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
+    if (input.operation.payload.tender === 'upi') {
+      assert.equal(input.operation.operationId, upiOperation);
+      assert.equal(input.operation.payload.tenderedMinor, 12900);
+      recordedUpi++;
+      response.writeHead(201, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ version: 1, operationId: upiOperation, status: 'committed', committedAt: input.operation.occurredAt }));
+      return;
+    }
     if (online && committed) {
       assert.deepEqual(input.operation, committed);
       retries++;
@@ -143,17 +165,29 @@ async function launch(activate = false) {
             } else if (next === 1 && checkout.textContent.includes('1 pending') && checkout.querySelector('[role=alert]') && sync) {
               window.checkoutStep = 2;
               sync.click();
-            } else if (next === 2 && checkout.textContent.includes('0 pending') && button('Close shift')) {
+            } else if (next === 2 && checkout.textContent.includes('0 pending') && add) {
               window.checkoutStep = 3;
+              add.click();
+            } else if (next === 3 && button('Start UPI payment')) {
+              window.checkoutStep = 4;
+              button('Start UPI payment').click();
+            } else if (next === 4 && button('Check UPI status') && checkout.querySelector('input[readonly]')?.value === 'https://rzp.io/i/counter-test') {
+              window.checkoutStep = 5;
+              button('Check UPI status').click();
+            } else if (next === 5 && button('Record UPI sale') && !complete) {
+              window.checkoutStep = 6;
+              button('Record UPI sale').click();
+            } else if (next === 6 && checkout.textContent.includes('0 pending') && checkout.textContent.includes('0 on hand') && button('Close shift')) {
+              window.checkoutStep = 7;
               button('Close shift').click();
-            } else if (next === 3 && button('Submit blind count')) {
+            } else if (next === 7 && button('Submit blind count')) {
               const submit = button('Submit blind count');
               if (checkout.textContent.includes('Expected')) throw new Error('Expected cash visible before blind count');
               submit.form.elements.amount.value = '12900';
-              window.checkoutStep = 4;
+              window.checkoutStep = 8;
               submit.click();
             }
-            return next === 4 && checkout.textContent.includes('Shift closed. Expected');
+            return next === 8 && checkout.textContent.includes('Shift closed. Expected');
           })()
         `)) {
           await evaluate(page.webSocketDebuggerUrl, 'window.close()');
@@ -192,12 +226,14 @@ async function main() {
     assert.equal(downloadCount, 1);
     assert.ok(heartbeats >= 2);
     assert.equal(retries, 1);
+    assert.equal(recordedUpi, 1);
+    assert.equal(reopened.prepare('SELECT count(*) AS count FROM cash_receipts').get().count, 2);
     assert.equal(committed.payload.lines[0].quantity, 1);
     assert.equal(reopened.prepare('SELECT count(*) AS count FROM cash_outbox').get().count, 0);
     assert.deepEqual({ ...reopened.prepare('SELECT counted_minor, expected_minor FROM cash_shifts').get() },
       { counted_minor: 12900, expected_minor: 12900 });
     reopened.close();
-    console.log('Offline checkout, one stock decrement, restart, receipt access, lost sync acknowledgement and blind close passed');
+    console.log('Offline cash replay, paid UPI receipt, stock changes and cash-only blind close passed');
   } finally {
     server.close();
     rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });

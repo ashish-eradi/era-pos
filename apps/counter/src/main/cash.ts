@@ -5,6 +5,7 @@ import type { CashReceiptV1, SyncAcknowledgementV1, SyncRequestV1 } from '@era/c
 import type { CashInput, CashState } from '../bridge';
 import { cachedCatalog } from './catalog';
 import { apiUrl, catalogCredential, pairing } from './pairing';
+import { clearUpi, savedUpi } from './upi';
 
 type Envelope = SyncRequestV1<CashReceiptV1>;
 type Shift = { id: string; opened_at: string; float_minor: number };
@@ -58,7 +59,7 @@ export function cashState(database: DatabaseSync): CashState {
   `).all(identity.registerId);
   return {
     shift: shift && { id: shift.id, openedAt: shift.opened_at },
-    receipts, pending: Number(counts.find(({ status }) => status === 'pending')?.count ?? 0),
+    receipts, upi: savedUpi(database), pending: Number(counts.find(({ status }) => status === 'pending')?.count ?? 0),
     rejected: Number(counts.find(({ status }) => status === 'rejected')?.count ?? 0),
   };
 }
@@ -73,11 +74,15 @@ export function startShift(database: DatabaseSync, amount: number): CashState {
 }
 
 export function closeShift(database: DatabaseSync, amount: number) {
+  if (savedUpi(database)) throw new Error('Resolve the UPI attempt before closing this shift');
   if (!cashAmount(amount)) throw new Error('Enter the counted cash in minor units');
   return atomic(database, () => {
     const current = openShift(database, register(database).registerId);
     if (!current) throw new Error('Open a shift first');
-    const sales = database.prepare('SELECT COALESCE(sum(total_minor), 0) AS total FROM cash_receipts WHERE shift_id = ?').get(current.id);
+    const sales = database.prepare(`
+      SELECT COALESCE(sum(total_minor), 0) AS total FROM cash_receipts
+      WHERE shift_id = ? AND COALESCE(json_extract(envelope, '$.payload.tender'), 'cash') = 'cash'
+    `).get(current.id);
     const expected = current.float_minor + Number(sales?.total);
     database.prepare('UPDATE cash_shifts SET closed_at = ?, counted_minor = ?, expected_minor = ? WHERE id = ?')
       .run(new Date().toISOString(), amount, expected, current.id);
@@ -114,6 +119,12 @@ export async function commitCash(database: DatabaseSync, input: CashInput): Prom
     const catalog = cachedCatalog(database);
     if (!catalog) throw new Error('Download the catalog before the first checkout');
     if (catalog.version !== input.catalogVersion) throw new Error('Catalog prices changed. Review the cart before completing the sale');
+    const upi = savedUpi(database);
+    if (upi && upi.operationId !== input.operationId) throw new Error('Finish the existing UPI attempt first');
+    if (input.tender === 'upi' && upi?.status !== 'paid') throw new Error('Confirm UPI payment before completing the sale');
+    if (!input.tender && upi && (!input.fallback || upi.status === 'paid')) {
+      throw new Error('Confirm the alternate tender first. Paid UPI must be recorded as UPI');
+    }
     const bySku = new Map(catalog.items.map((item) => [item.sku, item]));
     const lines = input.lines.map(({ sku, quantity }) => {
       const item = bySku.get(sku);
@@ -124,8 +135,10 @@ export async function commitCash(database: DatabaseSync, input: CashInput): Prom
       kind: 'cash_sale', shiftId: shift.id, currency: catalog.currency, lines,
       discountMinor: input.discountMinor, tenderedMinor: input.tenderedMinor,
       ...(input.discountMinor && { approval: input.approval }),
+      ...(input.tender === 'upi' && { tender: 'upi' as const }),
     };
     if (!isCashReceiptV1(payload)) throw new Error('Check item quantities, discount and cash tendered');
+    if (input.tender === 'upi' && upi?.amountMinor !== cashSubtotal(lines)) throw new Error('UPI amount does not match the cart');
     const envelope: Envelope = {
       version: 1, merchantId: identity.merchantId, branchId: identity.branchId, registerId: identity.registerId,
       operationId: input.operationId, occurredAt: new Date().toISOString(), payload,
@@ -135,6 +148,7 @@ export async function commitCash(database: DatabaseSync, input: CashInput): Prom
     database.prepare('INSERT INTO cash_outbox (id) VALUES (?)').run(input.operationId);
     for (const line of lines) bySku.get(line.sku)!.onHand -= line.quantity;
     database.prepare("UPDATE register_settings SET value = ? WHERE key = 'catalog-snapshot'").run(JSON.stringify(catalog));
+    if (upi) clearUpi(database);
     return input.operationId;
   });
 }

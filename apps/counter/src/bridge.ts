@@ -3,12 +3,19 @@ import type { CashReceiptV1, CatalogSnapshotV1, SyncRequestV1 } from '@era/contr
 export type CashInput = {
   operationId: string; shiftId: string; catalogVersion: string; lines: Array<{ sku: string; quantity: number }>;
   discountMinor: number; tenderedMinor: number; approval?: string;
+  tender?: 'upi';
+  fallback?: boolean;
+};
+export type UpiCheckout = {
+  registerId: string; operationId: string; shiftId: string; catalogVersion: string;
+  amountMinor: number; lines: CashInput['lines']; status: 'pending' | 'paid' | 'expired' | 'cancelled'; shortUrl: string | null;
 };
 export type CashState = {
   shift?: { id: string; openedAt: string };
   receipts: Array<SyncRequestV1<CashReceiptV1> & { status: string }>;
   pending: number;
   rejected: number;
+  upi?: UpiCheckout;
 };
 
 export type Pairing = { merchantId: string; branchId: string; registerId: string; deviceId: string };
@@ -25,4 +32,5 @@ export interface CounterBridge {
   cashSale(input: CashInput): Promise<string>;
   syncCash(): Promise<CashState>;
   printReceipt(id: string): Promise<void>;
+  upi(input?: CashInput): Promise<UpiCheckout>;
 }

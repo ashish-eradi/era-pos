@@ -12,6 +12,7 @@ const bridge: CounterBridge = {
   cashSale: (input) => ipcRenderer.invoke('counter:cash-sale', input),
   syncCash: () => ipcRenderer.invoke('counter:sync-cash'),
   printReceipt: (id) => ipcRenderer.invoke('counter:print-receipt', id),
+  upi: (input) => ipcRenderer.invoke('counter:upi', input),
 };
 
 contextBridge.exposeInMainWorld('counter', bridge);

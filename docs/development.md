@@ -88,7 +88,17 @@ Open a shift with an opening cash amount in minor units. Scan a barcode followed
 
 For a discount, give the merchant owner the sale ID and amount. The owner authorizes it for that register in the merchant workspace and returns an approval code to the cashier. The counter verifies the code online before accepting discounted cash. Standard cash sales can continue offline.
 
-To close the shift, enter counted cash before viewing the expected amount and variance. Shifts and close counts are kept on the register. The counter retries queued cash sales when it comes online and periodically while sales are pending. **Sync sales** also checks manually. Rejected sales remain stored for review. Catalog updates wait for local sales to sync so a download cannot overwrite pending stock decrements. Owners can open **Cash sales** in the web workspace to view the latest 100 synchronized receipts.
+To close the shift, enter counted cash before viewing the expected amount and variance. Shifts and close counts are kept on the register. The counter retries queued cash sales when it comes online and periodically while sales are pending. **Sync sales** also checks manually. Rejected sales remain stored for review. Catalog updates wait for local sales to sync so a download cannot overwrite pending stock decrements. Owners can open **Register sales** in the web workspace to view the latest 100 synchronized receipts.
+
+## Run the India UPI pilot
+
+Set the API environment variable `ERA_RAZORPAY_ACCOUNTS` to a JSON object keyed by the ERA merchant ID. Each entry has `keyId`, `keySecret`, and `webhookSecret` for that merchant's Razorpay account. Use Razorpay test keys during setup and keep credentials in the server secret store. Configure the merchant webhook at `/v1/payments/razorpay/<merchantId>/webhook` for payment-link paid, expired and cancelled events. The API verifies the original raw body and checks current link status before updating a payment.
+
+At an India counter, start UPI for a full-price cart and share the hosted payment link with the customer. Check status, then record the paid sale. If the link is unresolved and the customer chooses cash, confirm the cash fallback at the counter. ERA preserves the original payment attempt. A late UPI success appears as an overpayment in the merchant workspace. The owner can request a partial refund, check its status, and record the review outcome.
+
+For settlement import, normalize the provider statement into `payment_id,gross,refunds,fees` CSV with integer paise. Enter the bank settlement reference and actual deposited amount. The review shows the gross, refunds, fees, deposit difference, and unmatched payments. A repeated reference with the same statement returns the original result. This pilot workflow uses a manual statement import and a hosted link. Provider access and settlement testing against an actual merchant account are required before rollout.
+
+[Razorpay UPI Payment Link API](https://razorpay.com/docs/api/payments/payment-links/create-upi)
 
 ## Diagnose a stale register
 

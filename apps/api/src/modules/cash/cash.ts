@@ -76,6 +76,7 @@ export class CashController {
     const saved = {
       shiftId: receipt.shiftId, currency: receipt.currency, lines, discountMinor: receipt.discountMinor,
       tenderedMinor: receipt.tenderedMinor, totalMinor: cashSubtotal(lines) - receipt.discountMinor,
+      ...(receipt.tender && { tender: receipt.tender }),
     };
     const hash = digest(JSON.stringify([occurredAt, saved, receipt.approval]));
     return transaction(this.database, async (client) => {
@@ -99,6 +100,13 @@ export class CashController {
       const products = await client.query('SELECT sku FROM branch_catalog WHERE merchant_id = $1 AND branch_id = $2 AND sku = ANY($3)',
         [merchant, branch, lines.map(({ sku }) => sku)]);
       if (products.rowCount !== lines.length) return fail('invalid_operation');
+      if (receipt.tender === 'upi') {
+        const payment = await client.query(`
+          SELECT 1 FROM upi_attempts WHERE merchant_id = $1 AND register_id = $2 AND operation_id = $3
+            AND status = 'paid' AND amount_minor = $4
+        `, [...key, saved.totalMinor]);
+        if (!payment.rowCount) return fail('invalid_operation');
+      }
       if (receipt.discountMinor) {
         const approval = await client.query(`
           SELECT 1 FROM cash_discount_approvals

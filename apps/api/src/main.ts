@@ -10,6 +10,7 @@ import { PlatformController } from './modules/onboarding/platform';
 import { CatalogController } from './modules/catalog/catalog';
 import { CashController } from './modules/cash/cash';
 import { SupportController } from './modules/support/support';
+import { PaymentsController } from './modules/payments/payments';
 
 const database = openDatabase();
 
@@ -28,7 +29,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController, CashController, SupportController],
+  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController, CashController, SupportController, PaymentsController],
   providers: [{ provide: MERCHANT_DATABASE, useValue: database }],
 })
 class ApiModule {
@@ -38,7 +39,7 @@ class ApiModule {
 }
 
 async function main(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(ApiModule);
+  const app = await NestFactory.create<NestExpressApplication>(ApiModule, { rawBody: true });
   app.useBodyParser('json', { limit: '256kb' });
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3001));
