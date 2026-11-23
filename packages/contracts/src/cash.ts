@@ -8,6 +8,7 @@ export type CashReceiptV1 = {
   lines: CashLineV1[];
   discountMinor: number;
   tenderedMinor: number;
+  tender?: 'upi';
   approval?: string;
 };
 
@@ -32,5 +33,7 @@ export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
   const subtotal = cashSubtotal(receipt.lines);
   return new Set(receipt.lines.map(({ sku }) => sku)).size === receipt.lines.length &&
     cashAmount(subtotal) && receipt.discountMinor <= subtotal && receipt.tenderedMinor >= subtotal - receipt.discountMinor &&
-    (receipt.discountMinor === 0 || (typeof receipt.approval === 'string' && /^[A-Za-z0-9_-]{43}$/.test(receipt.approval)));
+    (receipt.discountMinor === 0 || (typeof receipt.approval === 'string' && /^[A-Za-z0-9_-]{43}$/.test(receipt.approval))) &&
+    (receipt.tender === undefined || (receipt.tender === 'upi' && receipt.currency === 'INR' &&
+      receipt.discountMinor === 0 && receipt.tenderedMinor === subtotal && subtotal > 0));
 }
