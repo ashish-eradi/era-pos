@@ -9,6 +9,7 @@ import { ReturnApprovals } from './ReturnApprovals';
 import { SupportTickets } from './SupportTickets';
 import { UpiPayments } from './UpiPayments';
 import { BranchShifts } from './BranchShifts';
+import { Overview } from './Overview';
 import { Signup } from './Signup';
 
 type Session = { merchantId: string; role: string; token: string };
@@ -16,10 +17,14 @@ type Branch = { id: string; name: string; timezone: string; catalogDefaults: str
 type Register = { id: string; branchId: string; name: string; status: string };
 
 export function MerchantHome() {
-  const [section, setSection] = useState("Workspace");
+  const [section, setSection] = useState("Overview");
   const [session, setSession] = useState<Session>();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [registers, setRegisters] = useState<Register[]>([]);
+  const [branchId,setBranchId] = useState("");
+  const [businessDate,setBusinessDate] = useState("");
+  const branch = branches.find(item => item.id === branchId) ?? branches[0];
+  const date = businessDate || new Intl.DateTimeFormat("sv-SE",{timeZone:branch?.timezone}).format(new Date());
   async function refresh(active: Session) {
     const path = `merchants/${active.merchantId}`;
     const [stores, counters] = await Promise.all([
@@ -29,24 +34,33 @@ export function MerchantHome() {
     setBranches(stores);
     setRegisters(counters);
   }
-  return <section aria-labelledby="merchant-title">
-    <h2 id="merchant-title">Merchant workspace</h2>
-    {!session ? <><Signup enter={async active => { setSession(active); await refresh(active); }} /><Action title="Accept invitation" run={async (form) => {
+  return <section className={session ? "merchant-shell" : "access-shell"} aria-labelledby="merchant-title">
+    {!session && <div className="access-cover"><div className="store-art" aria-hidden="true"><i/><b/><em/></div><h2 id="merchant-title">Merchant<br/>workspace</h2></div>}
+    {!session ? <div className="access-form"><Signup enter={async active => { setSession(active); await refresh(active); }} /><Action title="Accept invitation" run={async (form) => {
       const active = await request<Session>('invitations/accept', '', { code: values(form).code.trim() });
+      setSection(active.role === "accountant" ? "Sales" : "Overview");
       setSession(active);
       await refresh(active);
       return '';
-    }}><Field name="code" label="Invitation code" type="password" /></Action></> : <>
-      <button onClick={() => { setSection("Workspace"); setSession(undefined); setBranches([]); setRegisters([]); }}>End local session</button>
-      <nav aria-label="Merchant sections">{['Workspace', ...(session.role === 'owner' ? ['Catalog','Subscription'] : []),
-        ...(['owner','manager'].includes(session.role) ? ['Inventory','Returns'] : []),
-        ...(['owner','manager','accountant'].includes(session.role) ? ['Sales'] : [])].map(name =>
+    }}><Field name="code" label="Invitation code" type="password" /></Action></div> : <>
+      <aside className="rail"><h2 id="merchant-title">Workspace</h2>
+      <nav className="tabs" aria-label="Merchant sections">{['Overview', ...(session.role === 'owner' ? ['Catalog'] : []),
+        ...(['owner','manager'].includes(session.role) ? ['Inventory','Returns','Team and registers'] : []),
+        ...(['owner','manager','accountant'].includes(session.role) ? ['Sales'] : []),
+        ...(session.role === 'owner' ? ['Payments','Subscription','Integrations','Support'] : [])].map(name =>
           <button key={name} aria-current={section === name ? 'page' : undefined} onClick={() => setSection(name)}>{name}</button>)}</nav>
-      <Action title="Refresh branches" run={async () => { await refresh(session); return 'Branches updated'; }} />
+        <button className="quiet" onClick={() => {setSection('Overview');setSession(undefined);setBranches([]);setRegisters([]);setBranchId('');setBusinessDate('');}}>End local session</button>
+      </aside><article className="desk"><header className="section-head"><h1>{section}</h1>
+      <label>Branch<select value={branch?.id ?? ''} onChange={e=>{setBranchId(e.target.value);setBusinessDate('');}}>
+      {branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label></header>
+      {section === 'Overview' && branch && (session.role === 'cashier' ? <p>Use your paired counter to open a shift and sell in {branch.name}.</p> : <>
+        <label className="date-control">Business date<input type="date" value={date} onChange={e=>setBusinessDate(e.target.value)} /></label>
+        <Overview date={date} path={`merchants/${session.merchantId}/branches/${branch.id}`} token={session.token} sales={()=>setSection('Sales')} /></>)}
+      {!branches.length && <Action title="Refresh branches" run={async()=>{await refresh(session);return '';}}/>}
       {section === 'Subscription' && session.role === 'owner' && <Subscription path={`merchants/${session.merchantId}`} token={session.token} />}
       {section === 'Sales' && session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}`} token={session.token} />}
-      {section === 'Workspace' && session.role === 'owner' && <SupportTickets merchantId={session.merchantId} token={session.token} />}
-      {section === 'Workspace' && session.role === 'owner' && <>
+      {section === 'Support' && session.role === 'owner' && <SupportTickets merchantId={session.merchantId} token={session.token} />}
+      {section === 'Integrations' && session.role === 'owner' && <>
         <Action title="Register sales webhook" run={async form => {
           const result = await request<{ signingKey: string }>(`merchants/${session.merchantId}/webhook`,session.token,{ url: form.get('url') });
           return `Store this signing key privately: ${result.signingKey}`;
@@ -54,21 +68,21 @@ export function MerchantHome() {
         <Action title="Remove webhook and pending deliveries" run={async () => {
           await request(`merchants/${session.merchantId}/webhook`,session.token,undefined,'DELETE'); return 'Webhook removed';
         }} /></>}
-      {section === 'Sales' && session.role === 'owner' && <UpiPayments path={`merchants/${session.merchantId}/upi`} token={session.token} />}
+      {section === 'Payments' && session.role === 'owner' && <UpiPayments path={`merchants/${session.merchantId}/upi`} token={session.token} />}
       {!branches.length && <p>No assigned branches.</p>}
-      {section !== 'Subscription' && branches.map((branch) => {
+      {['Catalog','Inventory','Sales','Returns','Team and registers'].includes(section) && branches.filter(b=>b.id === branch?.id).map((branch) => {
         const path = `merchants/${session.merchantId}`;
         return <div key={branch.id}>
           <h3>{branch.name}</h3>
-          {section === 'Workspace' && ['owner','manager'].includes(session.role) &&
+          {section === 'Team and registers' && ['owner','manager'].includes(session.role) &&
             <BranchShifts path={`${path}/branches/${branch.id}/branch-shifts`} token={session.token} />}
           <p>{branch.timezone}{branch.catalogDefaults.length > 0 && ` · Suggested catalog attributes: ${branch.catalogDefaults.join(', ')}`}</p>
           {['owner','manager','accountant'].includes(session.role) && section === 'Sales' && <DailyClose path={`${path}/branches/${branch.id}`}
-            token={session.token} timezone={branch.timezone} canApprove={session.role !== 'accountant'} />}
+            initialDate={date} token={session.token} timezone={branch.timezone} canApprove={session.role !== 'accountant'} />}
           {['owner','manager'].includes(session.role) && section === 'Inventory' && <Inventory path={`${path}/branches/${branch.id}/inventory`} token={session.token} />}
           {['owner', 'manager'].includes(session.role) && section === 'Returns' && <ReturnApprovals path={`${path}/branches/${branch.id}/returns`} token={session.token} />}
           {section === 'Catalog' && session.role === 'owner' && <CatalogImport path={`${path}/branches/${branch.id}/catalog`} token={session.token} />}
-          {section === 'Workspace' && session.role === 'owner' && <>
+          {section === 'Team and registers' && session.role === 'owner' && <>
             <Action title="Invite branch staff" run={async (form) => {
               const { code } = await request<{ code: string }>(`${path}/branches/${branch.id}/staff-invitations`, session.token, values(form));
               return `Share privately. Code expires in 24 hours: ${code}`;
@@ -99,7 +113,7 @@ export function MerchantHome() {
             </div>)}
           </>}
         </div>;
-      })}
+      })}</article>
     </>}
   </section>;
 }

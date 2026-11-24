@@ -36,7 +36,7 @@ function download(report: Report) {
   setTimeout(() => URL.revokeObjectURL(address),1000);
 }
 
-export function DailyClose({ path, token, timezone, canApprove }: { path: string; token: string; timezone: string; canApprove: boolean }) {
+export function DailyClose({ path, token, timezone, canApprove, initialDate }: { path: string; token: string; timezone: string; initialDate?: string; canApprove: boolean }) {
   const [report, setReport] = useState<Report>();
   const totals = new Map<string, number>();
   for (const register of report?.registers ?? []) totals.set(String(register.id),0);
@@ -50,7 +50,7 @@ export function DailyClose({ path, token, timezone, canApprove }: { path: string
   return <section>
     <h4>Daily close and accountant export</h4>
     <Action title="Load business day" run={async (form) => { await load(values(form).date); return ''; }}>
-      <Field name="date" label="Branch business date" type="date" initial={today} />
+      <Field name="date" label="Branch business date" type="date" initial={initialDate ?? today} />
     </Action>
     {report && <>
       <p>{report.date} · {report.provisional ? 'Provisional. Register sync is stale or has queued records.' : 'Connected registers are up to date.'}</p>

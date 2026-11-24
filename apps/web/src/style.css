@@ -1,1 +1,30 @@
 @import "../../../packages/ui/theme.css";
+
+.merchant-shell { display:grid; grid-template-columns:13rem minmax(0,1fr); gap:clamp(1rem,3vw,3rem); }
+.rail { align-self:start; position:sticky; top:1rem; background:var(--card); border:1px solid var(--line); padding:1.15rem; border-radius:1rem; }
+.rail h2 { font-size:1.25rem; margin:.4rem; }
+.rail .tabs { flex-direction:column; margin:1rem 0; }
+.rail button { text-align:left; }
+.quiet { color:var(--pine); background:transparent; border:1px solid var(--line); }
+.desk { min-width:0; }
+.section-head,.register-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+.section-head {margin-bottom:1rem;}
+.section-head :is(h1,h3) { margin:0; }
+.date-control {max-width:13rem;margin-bottom:1rem;}
+.metric-grid { display:grid; grid-template-columns:2fr 1fr 1fr; gap:.8rem; margin:1rem 0; }
+.metric,.sales-metric { display:grid; padding:1.4rem; border-radius:1rem; background:var(--card); border:1px solid var(--line); gap:.65rem; }
+.metric-grid strong { font-size:clamp(2rem,3vw,3.4rem); line-height:1; }
+.sales-metric { background:var(--deep); text-align:left; color:white; }
+.sales-metric strong {color:var(--lime);}
+.sales-metric span {font-size:.85rem;}
+.register-row {border-top:1px solid var(--line);padding-top:.8rem;}
+.access-shell {display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:1.4rem;overflow:hidden;background:var(--card);max-width:1050px;margin:4vh auto;}
+.access-cover {position:relative;isolation:isolate;overflow:hidden;min-height:27rem;background:linear-gradient(155deg,#497b63,var(--deep) 80%);color:#f3f7da;display:flex;align-items:end;padding:clamp(1.6rem,4vw,4rem);}
+.access-cover h2 {font-size:clamp(2.7rem,5vw,5rem);margin:0;line-height:.97;letter-spacing:-.065em;}
+.store-art {position:absolute;z-index:-1;width:17rem;height:12rem;right:6%;top:12%;transform:rotate(-8deg);background:#c7d7a7;border-radius:.35rem;box-shadow:1rem 1.4rem 0 #0f342783;}
+.store-art i {position:absolute;inset:-1rem -.6rem auto;height:3rem;background:repeating-linear-gradient(90deg,#e8efc5 0 1.6rem,#639677 1.6rem 3.2rem);transform:skew(-10deg);border-radius:.4rem;}
+.store-art b,.store-art em {position:absolute;top:30%;bottom:12%;background:repeating-linear-gradient(135deg,#335e4f 0 2.3rem,#48745f 2.4rem 3rem);border:.4rem solid #eff2d2;}
+.store-art b {left:7%;width:50%;}.store-art em {right:7%;width:26%;bottom:0;}
+.access-form {align-self:center;padding:clamp(1rem,3vw,3rem);}
+td input {width:100%;} table {font-size:.92rem;}
+@media(max-width:760px){.merchant-shell,.access-shell {grid-template-columns:1fr;}.rail {position:static;}.rail .tabs {flex-direction:row;}.access-cover {min-height:12rem;}.store-art{transform:scale(.66) rotate(-8deg);transform-origin:top right;}.metric-grid {grid-template-columns:1fr 1fr;}.sales-metric{grid-column:1/-1;}.desk{overflow-x:auto;}}
