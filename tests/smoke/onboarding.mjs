@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import pg from 'pg';
@@ -114,12 +115,14 @@ export async function checkOnboarding(port, connectionString) {
     const otherActivation = await call(`${otherMerchant}/registers/${otherRegister.id}/activation-code`, otherOwner.token, 201, {});
     const otherDevice = randomUUID();
     const otherProof = randomBytes(32).toString('base64url');
-    await call('devices/activate', '', 201, { code: otherActivation.code, deviceId: otherDevice, pairingProof: otherProof });
     const otherPath = `${otherMerchant}/branches/${otherBranch.id}/catalog`;
     const otherCsv = csv.replace('12900', '399');
     await call(`${otherPath}/preview`, owner.token, 401, { csv: otherCsv });
     const otherDraft = await call(`${otherPath}/preview`, otherOwner.token, 201, { csv: otherCsv });
     await call(`${otherPath}/confirm`, otherOwner.token, 201, { csv: otherCsv, digest: otherDraft.digest });
+    execFileSync(process.execPath, ['tests/smoke/counter-api.mjs'], { stdio: 'inherit', timeout: 45000,
+      env: { ...process.env, ERA_API_ORIGIN: `http://127.0.0.1:${port}`, TEST_PROOF: otherProof,
+        TEST_DEVICE: otherDevice, TEST_ACTIVATION: otherActivation.code } });
     await call('devices/catalog', otherProof, 401, { deviceId });
     const otherSnapshot = await call('devices/catalog', otherProof, 201, { deviceId: otherDevice });
     assert.equal(otherSnapshot.currency, 'USD');
@@ -174,7 +177,7 @@ export async function checkOnboarding(port, connectionString) {
     assert.equal(sales.length, 1);
     assert.equal(sales[0].receipt.totalMinor, 12800);
     assert.equal(sales[0].receipt.approval, undefined);
-    assert.deepEqual(await call(`${otherMerchant}/cash-sales`, otherOwner.token, 200), []);
+    assert.deepEqual((await call(`${otherMerchant}/cash-sales`, otherOwner.token, 200)).map(row => row.registerId), [otherRegister.id]);
     assert.equal((await db.query("SELECT 1 FROM stock_movements WHERE merchant_id = $1 AND kind = 'cash_sale'", [merchantId])).rowCount, 1);
     console.log('Discount authorization, cash sync replay, single stock decrement and owner isolation passed');
     const heartbeat = { deviceId, appVersion: '0.0.0', pending: 2, rejected: 1, oldestPendingAt: operation.occurredAt };
@@ -251,7 +254,7 @@ export async function checkOnboarding(port, connectionString) {
       await db.query('BEGIN');
       for (const table of [
         'support_events', 'support_grants', 'support_tickets', 'register_health',
-        'cash_sales', 'cash_discount_approvals',
+        'shift_closes', 'cash_sales', 'cash_discount_approvals',
         'stock_movements', 'catalog_imports', 'branch_catalog',
         'onboarding_audit', 'activation_codes', 'invitations', 'merchant_audit', 'registers',
         'membership_sessions', 'branch_assignments', 'memberships', 'catalog_barcodes', 'branches', 'entitlements', 'trials',
