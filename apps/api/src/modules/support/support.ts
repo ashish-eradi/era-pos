@@ -84,7 +84,19 @@ export class SupportController {
   @Get('platform/support/queue')
   async queue(@Headers('authorization') authorization?: string) {
     const operatorId = await support(this.database, authorization);
-    const stale = await this.database.query(`
+    const stale = await this.staleRegisters(3);
+    const tickets = await this.database.query(`${ticketListing} ORDER BY t.resolved_at NULLS FIRST, t.created_at DESC LIMIT 100`);
+    return { operatorId, stale: stale.rows, tickets: tickets.rows };
+  }
+
+  @Get('devices/heartbeat-status')
+  async heartbeatStatus(@Headers('authorization') authorization?: string) {
+    await support(this.database, authorization);
+    return (await this.staleRegisters(15)).rows;
+  }
+
+  private staleRegisters(minutes: number) {
+    return this.database.query(`
       SELECT r.merchant_id AS "merchantId", m.name AS merchant, b.name AS branch, r.name AS register,
         r.id AS "registerId", h.observed_at AS "observedAt",
         (SELECT max(s.committed_at) FROM cash_sales s WHERE s.merchant_id = r.merchant_id AND s.register_id = r.id) AS "lastAcknowledgedAt"
@@ -92,11 +104,9 @@ export class SupportController {
       JOIN branches b ON (b.merchant_id,b.id) = (r.merchant_id,r.branch_id)
       LEFT JOIN register_health h ON (h.merchant_id,h.register_id) = (r.merchant_id,r.id)
       WHERE r.status = 'active'
-        AND COALESCE(h.observed_at, r.activated_at) < clock_timestamp() - interval '3 minutes'
+        AND COALESCE(h.observed_at, r.activated_at) < clock_timestamp() - make_interval(mins => $1)
       ORDER BY COALESCE(h.observed_at, r.activated_at), r.merchant_id, r.id LIMIT 100
-    `);
-    const tickets = await this.database.query(`${ticketListing} ORDER BY t.resolved_at NULLS FIRST, t.created_at DESC LIMIT 100`);
-    return { operatorId, stale: stale.rows, tickets: tickets.rows };
+    `, [minutes]);
   }
 
   @Post('platform/support/tickets')

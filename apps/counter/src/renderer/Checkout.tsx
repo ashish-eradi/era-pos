@@ -1,4 +1,5 @@
 import { Returns } from './Returns';
+import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { cashSubtotal } from '@era/contracts';
@@ -42,6 +43,48 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
     : `${amount} minor units`;
   const items = catalog?.items ?? [];
   const payment = state?.upi;
+  const [seconds, setSeconds] = useState(10);
+  useEffect(() => {
+    if (payment?.status !== 'pending' || !payment.shortUrl || busy) return;
+    let remaining = 10;
+    setSeconds(remaining);
+    const timer = window.setInterval(() => {
+      setSeconds(--remaining);
+      if (remaining > 0) return;
+      window.clearInterval(timer);
+      setBusy(true);
+      void window.counter.upi().then(() => window.counter.cashState()).then(setState)
+        .catch(() => setError('UPI status unavailable. Checking again shortly.'))
+        .finally(() => setBusy(false));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [payment, busy]);
+  useEffect(() => {
+    if (!state?.shift || busy || close || payment || !catalog) return;
+    let buffer = '';
+    let lastKey = 0;
+    function scan(event: KeyboardEvent) {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing ||
+          (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]'))) {
+        buffer = '';
+        return;
+      }
+      if (event.timeStamp - lastKey > 100) buffer = '';
+      lastKey = event.timeStamp;
+      if (event.key === 'Enter') {
+        const item = buffer && catalog?.items.find(({ barcode }) => barcode === buffer);
+        buffer = '';
+        if (item) {
+          event.preventDefault();
+          setCart((current) => (current[item.sku] ?? 0) < Math.min(1000, item.onHand)
+            ? { ...current, [item.sku]: (current[item.sku] ?? 0) + 1 } : current);
+        }
+      } else if (event.key.length === 1) buffer += event.key;
+      else if (event.key !== 'Shift') buffer = '';
+    }
+    window.addEventListener('keydown', scan, true);
+    return () => window.removeEventListener('keydown', scan, true);
+  }, [catalog, state?.shift, busy, close, payment]);
   const lines = items.filter(({ sku }) => cart[sku]).map((item) => ({
     sku: item.sku, product: item.product, unitMinor: item.priceMinor, quantity: cart[item.sku],
   }));
@@ -62,7 +105,7 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
 
   function add(sku: string) {
     const available = items.find((item) => item.sku === sku)?.onHand ?? 0;
-    setCart((current) => (current[sku] ?? 0) < available
+    setCart((current) => (current[sku] ?? 0) < Math.min(1000, available)
       ? { ...current, [sku]: (current[sku] ?? 0) + 1 } : current);
   }
 
@@ -137,29 +180,52 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
           <label>Search products or scan a barcode<input value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         </form>
         {matches.length ? <ul>{matches.map((item) => <li key={item.sku}>
-          <button type="button" disabled={busy || !!payment || (cart[item.sku] ?? 0) >= item.onHand} onClick={() => add(item.sku)}>Add {item.product}</button>
+          <button type="button" disabled={busy || !!payment || (cart[item.sku] ?? 0) >= Math.min(1000, item.onHand)} onClick={() => add(item.sku)}>Add {item.product}</button>
           {' '}{item.sku} · {item.barcode} · {money(item.priceMinor)} · {item.onHand} on hand
           {Object.entries(item.attributes).map(([key, value]) => <span key={key}> · {key} {value}</span>)}
         </li>)}</ul> : <p>{catalog ? 'No matching products.' : 'Download the catalog to check out.'}</p>}
         {lines.length > 0 && <form onSubmit={sell}>
           <fieldset disabled={busy}>
             <legend>Payment</legend>
-            <ul>{lines.map((line) => <li key={line.sku}>{line.product} × {line.quantity}{' '}
+            <ul>{lines.map((line) => <li key={line.sku}>{line.product}{' '}
+              <label>Quantity<input aria-label={`Quantity for ${line.product}`} type="number" min="1"
+                max={Math.min(1000, items.find(({ sku }) => sku === line.sku)!.onHand)}
+                key={line.quantity} defaultValue={line.quantity} required disabled={!!payment}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  }
+                }}
+                onBlur={(event) => {
+                  const field = event.currentTarget;
+                  const quantity = field.valueAsNumber;
+                  if (field.validity.valid) setCart((current) => ({ ...current, [line.sku]: quantity }));
+                  else field.value = String(line.quantity);
+                }} /></label>
               <button type="button" disabled={!!payment} onClick={() => setCart((current) => ({ ...current, [line.sku]: Math.max(0, current[line.sku] - 1) }))}>Remove one</button>
             </li>)}</ul>
             <p>Subtotal {money(cashSubtotal(lines))}</p>
             {catalog?.currency === 'INR' && !payment && !discount && <button type="button" onClick={() => checkUpi(true)}>Start UPI payment</button>}
             {payment && <>
               <p>UPI {payment.status} · {money(payment.amountMinor)}</p>
+              {payment.shortUrl && payment.status === 'pending' && <>
+                <QRCodeSVG value={payment.shortUrl} size={192} marginSize={4} title="Scan to pay by UPI" />
+                <p>{busy ? 'Checking payment…' : `Next payment check in ${seconds}s`}</p>
+              </>}
               {payment.shortUrl && payment.status === 'pending' && <label>Customer payment link<input value={payment.shortUrl} readOnly onFocus={(event) => event.target.select()} /></label>}
               {payment.status === 'pending' && <button type="button" onClick={() => checkUpi(!payment.shortUrl)}>Check UPI status</button>}
               {payment.status === 'paid' ? <button type="button" onClick={() => void run(() => complete(payment.amountMinor, 0, undefined, 'upi'))}>Record UPI sale</button> :
                 <label><input type="checkbox" checked={fallback} onChange={(event) => setFallback(event.target.checked)} /> Accept cash instead. A delayed UPI payment may require a refund.</label>}
             </>}
             {(!payment || (fallback && payment.status !== 'paid')) && <>
-            <label><input type="checkbox" checked={discount} onChange={(event) => setDiscount(event.target.checked)} /> Apply owner-approved discount</label>
+            <button type="button" aria-expanded={discount} onClick={() => setDiscount(!discount)}>{discount ? 'Cancel discount' : 'Request discount'}</button>
             {discount && <>
               <p>Give the owner this sale ID to authorize the discount. <code>{operationId}</code></p>
+              <button type="button" onClick={() => void run(async () => {
+                await navigator.clipboard.writeText(operationId);
+                setNotice('Sale ID copied.');
+              })}>Copy sale ID</button>
               <label>Discount (minor units)<input name="discount" type="number" min="1" step="1" required /></label>
               <label>Owner approval code<input name="approval" required autoComplete="off" /></label>
             </>}
@@ -174,10 +240,15 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
     {error && <p role="alert">{error}</p>}
     {state && <>
       <p>{state.pending} pending · {state.rejected} need review</p>
+      <ul>{state.queue.map(entry => <li key={entry.id}>
+        {entry.id} · {entry.status} · {entry.attempts} sync attempts {entry.error}
+        {entry.status === 'rejected' && <button disabled={busy} onClick={() => void run(async () =>
+          setState(await window.counter.clearRejected(entry.id)))}>Clear reviewed rejection</button>}
+      </li>)}</ul>
       <button disabled={busy} onClick={() => void run(async () => { setState(await window.counter.syncCash()); setNotice('Sync checked.'); })}>
         Sync sales
       </button>
-      {state.receipts.length > 0 && <><h3>Saved receipts</h3><ul>{state.receipts.map((sale) => <li key={sale.operationId}>
+      {state.receipts.length > 0 && <><h3>Recent receipts</h3><ul>{state.receipts.map((sale) => <li key={sale.operationId}>
         {new Date(sale.occurredAt).toLocaleString()} · {money(cashSubtotal(sale.payload.lines) - sale.payload.discountMinor, sale.payload.currency)} · {sale.status}{' '}
         <button disabled={busy} onClick={() => void run(() => window.counter.printReceipt(sale.operationId))}>
           {sale.operationId === lastReceipt ? 'Print receipt' : 'Reprint receipt'}

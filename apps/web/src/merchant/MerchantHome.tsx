@@ -14,6 +14,7 @@ type Branch = { id: string; name: string; timezone: string; catalogDefaults: str
 type Register = { id: string; branchId: string; name: string; status: string };
 
 export function MerchantHome() {
+  const [section, setSection] = useState("Workspace");
   const [session, setSession] = useState<Session>();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [registers, setRegisters] = useState<Register[]>([]);
@@ -34,24 +35,28 @@ export function MerchantHome() {
       await refresh(active);
       return '';
     }}><Field name="code" label="Invitation code" type="password" /></Action> : <>
-      <button onClick={() => { setSession(undefined); setBranches([]); setRegisters([]); }}>End local session</button>
+      <button onClick={() => { setSection("Workspace"); setSession(undefined); setBranches([]); setRegisters([]); }}>End local session</button>
+      <nav aria-label="Merchant sections">{['Workspace', ...(session.role === 'owner' ? ['Catalog','Subscription'] : []),
+        ...(['owner','manager'].includes(session.role) ? ['Inventory','Returns'] : []),
+        ...(['owner','manager','accountant'].includes(session.role) ? ['Sales'] : [])].map(name =>
+          <button key={name} aria-current={section === name ? 'page' : undefined} onClick={() => setSection(name)}>{name}</button>)}</nav>
       <Action title="Refresh branches" run={async () => { await refresh(session); return 'Branches updated'; }} />
-      {session.role === 'owner' && <Subscription path={`merchants/${session.merchantId}`} token={session.token} />}
-      {session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}`} token={session.token} />}
-      {session.role === 'owner' && <SupportTickets merchantId={session.merchantId} token={session.token} />}
-      {session.role === 'owner' && <UpiPayments path={`merchants/${session.merchantId}/upi`} token={session.token} />}
+      {section === 'Subscription' && session.role === 'owner' && <Subscription path={`merchants/${session.merchantId}`} token={session.token} />}
+      {section === 'Sales' && session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}`} token={session.token} />}
+      {section === 'Workspace' && session.role === 'owner' && <SupportTickets merchantId={session.merchantId} token={session.token} />}
+      {section === 'Sales' && session.role === 'owner' && <UpiPayments path={`merchants/${session.merchantId}/upi`} token={session.token} />}
       {!branches.length && <p>No assigned branches.</p>}
-      {branches.map((branch) => {
+      {section !== 'Subscription' && branches.map((branch) => {
         const path = `merchants/${session.merchantId}`;
         return <div key={branch.id}>
           <h3>{branch.name}</h3>
           <p>{branch.timezone}{branch.catalogDefaults.length > 0 && ` · Suggested catalog attributes: ${branch.catalogDefaults.join(', ')}`}</p>
-          {['owner','manager','accountant'].includes(session.role) && <DailyClose path={`${path}/branches/${branch.id}`}
+          {['owner','manager','accountant'].includes(session.role) && section === 'Sales' && <DailyClose path={`${path}/branches/${branch.id}`}
             token={session.token} timezone={branch.timezone} canApprove={session.role !== 'accountant'} />}
-          {['owner','manager'].includes(session.role) && <Inventory path={`${path}/branches/${branch.id}/inventory`} token={session.token} />}
-          {['owner', 'manager'].includes(session.role) && <ReturnApprovals path={`${path}/branches/${branch.id}/returns`} token={session.token} />}
-          {session.role === 'owner' && <>
-            <CatalogImport path={`${path}/branches/${branch.id}/catalog`} token={session.token} />
+          {['owner','manager'].includes(session.role) && section === 'Inventory' && <Inventory path={`${path}/branches/${branch.id}/inventory`} token={session.token} />}
+          {['owner', 'manager'].includes(session.role) && section === 'Returns' && <ReturnApprovals path={`${path}/branches/${branch.id}/returns`} token={session.token} />}
+          {section === 'Catalog' && session.role === 'owner' && <CatalogImport path={`${path}/branches/${branch.id}/catalog`} token={session.token} />}
+          {section === 'Workspace' && session.role === 'owner' && <>
             <Action title="Invite branch staff" run={async (form) => {
               const { code } = await request<{ code: string }>(`${path}/branches/${branch.id}/staff-invitations`, session.token, values(form));
               return `Share privately. Code expires in 24 hours: ${code}`;

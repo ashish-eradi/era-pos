@@ -38,10 +38,17 @@ function download(report: Report) {
 
 export function DailyClose({ path, token, timezone, canApprove }: { path: string; token: string; timezone: string; canApprove: boolean }) {
   const [report, setReport] = useState<Report>();
+  const totals = new Map<string, number>();
+  for (const register of report?.registers ?? []) totals.set(String(register.id),0);
+  for (const sale of report?.sales ?? []) {
+    const id = String(sale.register_id);
+    totals.set(id, (totals.get(id) ?? 0) + Number((sale.receipt as { totalMinor: number }).totalMinor));
+  }
+  const max = Math.max(1,...totals.values());
   const today = new Intl.DateTimeFormat('sv-SE',{ timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   async function load(date: string) { setReport(await request<Report>(`${path}/daily-close?date=${encodeURIComponent(date)}`,token)); }
-  return <details>
-    <summary>Daily close and accountant export</summary>
+  return <section>
+    <h4>Daily close and accountant export</h4>
     <Action title="Load business day" run={async (form) => { await load(values(form).date); return ''; }}>
       <Field name="date" label="Branch business date" type="date" initial={today} />
     </Action>
@@ -49,6 +56,10 @@ export function DailyClose({ path, token, timezone, canApprove }: { path: string
       <p>{report.date} · {report.provisional ? 'Provisional. Register sync is stale or has queued records.' : 'Connected registers are up to date.'}</p>
       <p>Register sales {report.grossMinor} · Net after returns and exchanges {report.netMinor} (minor units)</p>
       <p>{report.sales.length} sales · {report.returns.length} returns · {report.settlements.length} matched settlement entries</p>
+      <figure><figcaption>Gross sales per register (minor units)</figcaption>
+        {[...totals].map(([id,total]) => <p key={id}>{String(report.registers.find(r => r.id === id)?.name ?? id)}{' '}
+          <meter value={total} max={max} aria-label={`Sales for register ${id}`} /> {total}</p>)}
+      </figure>
       <button type="button" onClick={() => download(report)}>Download branch CSV</button>
       {report.shifts.map((shift) => <details key={`${shift.register_id}-${shift.id}`}>
         <summary>{new Date(shift.closed_at).toLocaleString()} · Variance {shift.variance_minor}</summary>
@@ -61,5 +72,5 @@ export function DailyClose({ path, token, timezone, canApprove }: { path: string
         }}><Field name="reason" label="Reason for variance" /></Action>}
       </details>)}
     </>}
-  </details>;
+  </section>;
 }

@@ -15,6 +15,9 @@ main {
 h1 { line-height: 1.1; }
 
 nav { display: flex; flex-wrap: wrap; gap: 1rem; margin-block: 1.5rem; }
+nav button[aria-current="page"] { color: white; background: #176448; border-color: #176448; }
+td input { min-width: 0; width: 100%; box-sizing: border-box; }
+figure meter { width: min(16rem, 45%); }
 
 a { color: #176448; }
 

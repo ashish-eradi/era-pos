@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  BadRequestException, Body, ConflictException, Controller, Headers, Inject, NotFoundException, Param, Post, UnauthorizedException,
+  BadRequestException, Body, ConflictException, Controller, Get, Headers, Inject, NotFoundException, Param, Post, UnauthorizedException,
 } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
 import { MERCHANT_DATABASE } from '../merchant/merchant.controller';
@@ -38,6 +38,39 @@ async function conflicts(client: PoolClient, scope: Scope, rows: CatalogRow[]) {
 @Controller('v1')
 export class CatalogController {
   constructor(@Inject(MERCHANT_DATABASE) private readonly database: Pool) {}
+
+  @Get('merchants/:merchantId/branches/:branchId/catalog/items')
+  list(@Param('merchantId') merchant: string, @Param('branchId') branch: string, @Headers('authorization') authorization?: string) {
+    return transaction(this.database, async client => {
+      await owner(client, merchant, authorization);
+      return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",attributes FROM branch_catalog
+        WHERE merchant_id=$1 AND branch_id=$2 ORDER BY sku`, [merchant,branch])).rows;
+    });
+  }
+
+  @Post('merchants/:merchantId/branches/:branchId/catalog/items')
+  edit(@Param('merchantId') merchant: string, @Param('branchId') branch: string, @Body() input: unknown,
+    @Headers('authorization') authorization?: string) {
+    return transaction(this.database, async client => {
+      const actor = await owner(client, merchant, authorization);
+      const data = record(input);
+      const sku = text(data.sku,'SKU',80);
+      const product = text(data.product,'product',150);
+      const price = data.priceMinor;
+      if (typeof price !== 'number' || !Number.isInteger(price) || price < 0 || price > 1_000_000_000)
+        throw new BadRequestException('Invalid price in minor units');
+      await client.query('SELECT id FROM merchants WHERE id=$1 FOR UPDATE',[merchant]);
+      const item = await client.query('SELECT product,price_minor FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',[merchant,branch,sku]);
+      if (!item.rowCount) throw new NotFoundException();
+      if (item.rows[0].product === product && item.rows[0].price_minor === price) return { updated: false };
+      await client.query('UPDATE branch_catalog SET product=$4,price_minor=$5 WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',
+        [merchant,branch,sku,product,price]);
+      await client.query(`INSERT INTO catalog_imports (merchant_id,branch_id,digest,membership_id,version)
+        SELECT $1,$2,$3,$4,COALESCE(max(version),0)+1 FROM catalog_imports WHERE merchant_id=$1 AND branch_id=$2`,
+        [merchant,branch,randomUUID(),actor]);
+      return { updated: true };
+    });
+  }
 
   @Post('merchants/:merchantId/branches/:branchId/catalog/preview')
   preview(@Param('merchantId') merchant: string, @Param('branchId') branch: string,

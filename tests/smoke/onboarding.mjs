@@ -125,6 +125,15 @@ export async function checkOnboarding(port, connectionString) {
     assert.equal(otherSnapshot.currency, 'USD');
     assert.equal(otherSnapshot.items[0].barcode, snapshot.items[0].barcode);
     assert.equal(otherSnapshot.items[0].priceMinor, 399);
+    const edited = { sku: otherSnapshot.items[0].sku, product: 'Pocket notebook', priceMinor: 499 };
+    await call(`${otherPath}/items`, owner.token, 401, edited);
+    assert.equal((await call(`${otherPath}/items`, otherOwner.token, 201, edited)).updated, true);
+    assert.equal((await call(`${otherPath}/items`, otherOwner.token, 201, edited)).updated, false);
+    const updated = await call('devices/catalog', otherProof, 201, { deviceId: otherDevice });
+    assert.equal(updated.version, '2');
+    assert.equal(updated.items[0].product, edited.product);
+    assert.equal(updated.items[0].onHand, otherSnapshot.items[0].onHand);
+    assert.equal((await call(`${otherPath}/items`, otherOwner.token, 200))[0].priceMinor, 499);
     assert.equal(snapshot.items[0].priceMinor, 12900);
 
     const access = await call(issue, owner.token, 201, {});
@@ -178,6 +187,9 @@ export async function checkOnboarding(port, connectionString) {
       [merchantId, register.id]);
     const stale = (await call(queuePath, support, 200)).stale.find((item) => item.registerId === register.id);
     assert.equal(stale.merchantId, merchantId);
+    assert.equal((await call('devices/heartbeat-status', support, 200)).some(item => item.registerId === register.id), false);
+    await db.query("UPDATE register_health SET observed_at = now() - interval '16 minutes' WHERE merchant_id = $1 AND register_id = $2", [merchantId, register.id]);
+    assert.ok((await call('devices/heartbeat-status', support, 200)).some(item => item.registerId === register.id));
     assert.ok(stale.lastAcknowledgedAt);
     assert.equal(stale.pending, undefined);
     const incident = await call('platform/support/tickets', support, 201, { merchantId, registerId: register.id, reason: 'Counter stopped reporting' });

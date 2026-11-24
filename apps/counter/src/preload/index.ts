@@ -15,6 +15,7 @@ const bridge: CounterBridge = {
   closeShift: (amount) => ipcRenderer.invoke('counter:close-shift', amount),
   cashSale: (input) => ipcRenderer.invoke('counter:cash-sale', input),
   syncCash: () => ipcRenderer.invoke('counter:sync-cash'),
+  clearRejected: (id: string) => ipcRenderer.invoke('counter:clear-rejected', id),
   printReceipt: (id) => ipcRenderer.invoke('counter:print-receipt', id),
   returns: () => ipcRenderer.invoke('counter:returns'),
   changeReturn: (id, action, draft) => ipcRenderer.invoke('counter:change-return', id, action, draft),
