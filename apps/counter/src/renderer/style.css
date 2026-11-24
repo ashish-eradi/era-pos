@@ -1,1 +1,18 @@
 @import "../../../../packages/ui/theme.css";
+
+.sell-grid { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(17rem,.8fr); gap:1rem; align-items:start; margin:1rem 0; }
+.product-list,.basket ul { list-style:none; margin:1rem 0; padding:0; }
+.product-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(10rem,1fr)); gap:.65rem; }
+.product-list li { display:grid; gap:.4rem; padding:1rem; border:1px solid var(--line); border-radius:.8rem; background:#f8faf5; }
+.product-list button { text-align:left; background:transparent; color:var(--pine); padding:0; }
+.product-list button:hover:enabled { background:#e6efda; }
+small { display:block; color:var(--muted); }
+.basket { position:sticky; top:1rem; padding:1.3rem; border-radius:1rem; background:var(--deep); color:white; }
+.basket fieldset { color:var(--ink); margin:0; padding:1rem; }
+.basket legend { padding:.25rem .6rem; background:var(--lime); border-radius:.4rem; }
+.basket li { border-bottom:1px solid var(--line); padding:.6rem 0; }
+.basket li label { display:inline-grid; margin-right:.5rem; }
+.basket li input { width:5rem; }
+.total { display:grid; background:#eaf1de; border-radius:.7rem; padding:1rem; margin:0; }
+.total strong { font-size:1.8rem; }
+@media(max-width:700px){ .sell-grid { grid-template-columns:1fr; } .basket {position:static;} }

@@ -14,6 +14,8 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [tender, setTender] = useState('');
+  const [reduction, setReduction] = useState('');
   const [discount, setDiscount] = useState(false);
   const [fallback, setFallback] = useState(false);
   const [close, showClose] = useState(false);
@@ -134,6 +136,7 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
       const id = await window.counter.cashSale({
         operationId, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor, tenderedMinor, approval, tender, fallback,
       });
+      setTender(''); setReduction('');
       setLastReceipt(id);
       setCart({});
       setQuery('');
@@ -152,7 +155,7 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
   function sell(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    void run(() => complete(Number(data.get('tendered')), Number(data.get('discount') ?? 0), String(data.get('approval') ?? '').trim()));
+    void run(() => complete(Math.round(Number(data.get('tendered')) * 100), Math.round(Number(data.get('discount') ?? 0) * 100), String(data.get('approval') ?? '').trim()));
   }
 
   function checkUpi(create: boolean) {
@@ -175,7 +178,7 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
       {close ? <form onSubmit={(event) => count(event, true)}>
         <label>Counted cash (minor units)<input name="amount" type="number" min="0" step="1" required /></label>
         <button disabled={busy}>Submit blind count</button>
-      </form> : <>
+      </form> : <div className="sell-grid"><div className="panel catalog-pane"><h3>Product catalog</h3>
         <form onSubmit={(event) => {
           event.preventDefault();
           const match = items.find((item) => item.barcode === query.trim());
@@ -183,15 +186,18 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
         }}>
           <label>Search products or scan a barcode<input value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         </form>
-        {matches.length ? <ul>{matches.map((item) => <li key={item.sku}>
+        {matches.length ? <ul className="product-list">{matches.map((item) => <li key={item.sku}>
           <button type="button" disabled={busy || !!payment || (cart[item.sku] ?? 0) >= Math.min(1000, item.onHand)} onClick={() => add(item.sku)}>Add {item.product}</button>
-          {' '}{item.sku} · {item.barcode} · {money(item.priceMinor)} · {item.onHand} on hand
-          {Object.entries(item.attributes).map(([key, value]) => <span key={key}> · {key} {value}</span>)}
+          <strong>{money(item.priceMinor)}</strong>
+          <small>{item.sku} · {item.barcode} · {item.onHand} on hand</small>
+          {Object.entries(item.attributes).map(([key,value]) => <small key={key}>{key} {value}</small>)}
         </li>)}</ul> : <p>{catalog ? 'No matching products.' : 'Download the catalog to check out.'}</p>}
+        </div><aside className="basket"><h3>Current sale</h3>
+        {!lines.length && <p className="empty-cart">Scan a barcode or choose a product to start a sale.</p>}
         {lines.length > 0 && <form onSubmit={sell}>
           <fieldset disabled={busy}>
-            <legend>Payment</legend>
-            <ul>{lines.map((line) => <li key={line.sku}>{line.product}{' '}
+            <legend>Cart and payment</legend>
+            <ul>{lines.map((line) => <li key={line.sku}><b>{line.product}</b><small>{line.sku} · {money(line.unitMinor)} each · {money(line.unitMinor * line.quantity)}</small>
               <label>Quantity<input aria-label={`Quantity for ${line.product}`} type="number" min="1"
                 max={Math.min(1000, items.find(({ sku }) => sku === line.sku)!.onHand)}
                 key={line.quantity} defaultValue={line.quantity} required disabled={!!payment}
@@ -209,7 +215,7 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
                 }} /></label>
               <button type="button" disabled={!!payment} onClick={() => setCart((current) => ({ ...current, [line.sku]: Math.max(0, current[line.sku] - 1) }))}>Remove one</button>
             </li>)}</ul>
-            <p>Subtotal {money(cashSubtotal(lines))}</p>
+            <p className="total">Amount due <strong>{money(cashSubtotal(lines) - (discount ? Math.round(Number(reduction)*100) : 0))}</strong></p>
             {catalog?.currency === 'INR' && !payment && !discount && <button type="button" onClick={() => checkUpi(true)}>Start UPI payment</button>}
             {payment && <>
               <p>UPI {payment.status} · {money(payment.amountMinor)}</p>
@@ -230,15 +236,16 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
                 await navigator.clipboard.writeText(operationId);
                 setNotice('Sale ID copied.');
               })}>Copy sale ID</button>
-              <label>Discount (minor units)<input name="discount" type="number" min="1" step="1" required /></label>
+              <label>Discount ({currency})<input name="discount" value={reduction} onChange={e => setReduction(e.target.value)} type="number" min=".01" step=".01" required /></label>
               <label>Owner approval code<input name="approval" required autoComplete="off" /></label>
             </>}
-            <label>Cash tendered (minor units)<input name="tendered" type="number" min="0" step="1" required /></label>
+            <label>Cash tendered ({currency})<input name="tendered" value={tender} onChange={e => setTender(e.target.value)} type="number" min="0" step=".01" required /></label>
+            {tender && <p>Change {money(Math.max(0,Math.round(Number(tender)*100)-cashSubtotal(lines)+(discount ? Math.round(Number(reduction)*100) : 0)))}</p>}
             <button>Complete cash sale</button>
             </>}
           </fieldset>
-        </form>}
-      </>}
+        </form>}</aside>
+      </div>}
     </>}
     {notice && <p role="status">{notice}</p>}
     {error && <p role="alert">{error}</p>}
