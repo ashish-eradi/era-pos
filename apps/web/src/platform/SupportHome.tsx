@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
 import { localTime, Timeline } from '../support';
 import type { History, Ticket } from '../support';
@@ -56,6 +56,20 @@ export function SupportHome() {
   const [token, setToken] = useState('');
   const [queue, setQueue] = useState<Queue>();
   const [offline, setOffline] = useState<Queue['stale']>();
+  const [heartbeatError, setHeartbeatError] = useState(false);
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    const check = async () => {
+      try {
+        const rows = await request<Queue['stale']>('devices/heartbeat-status',token);
+        if (active) { setOffline(rows); setHeartbeatError(false); }
+      } catch { if (active) setHeartbeatError(true); }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(),60000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [token]);
   async function refresh() { setQueue(await request<Queue>('platform/support/queue', token)); }
   return <section aria-labelledby="support-title">
     <h2 id="support-title">ERA support</h2>
@@ -72,6 +86,7 @@ export function SupportHome() {
         return rows.length ? `${rows.length} offline` : 'All registers reported recently';
       }} />
       {offline?.map(row => <p key={row.registerId}>{row.merchant} · {row.branch} · {row.register} · Last heartbeat {localTime(row.observedAt)}</p>)}
+      {heartbeatError && <p role="alert">Heartbeat status could not be refreshed.</p>}
       <Action title="Refresh queue" run={async () => { await refresh(); return 'Queue updated'; }} />
       <h3>Stale registers</h3>
       {!queue.stale.length && <p>No stale registers.</p>}

@@ -11,6 +11,7 @@ export async function mockRazorpay() {
   const webhookSecret = randomBytes(32).toString('hex');
   const auth = 'Basic ' + Buffer.from('rzp_test_smoke:mock-test-secret').toString('base64');
   const links = new Map();
+  const emailCodes = new Map();
   const refunds = new Map();
   let createCalls = 0;
   let refundCalls = 0;
@@ -20,16 +21,27 @@ export async function mockRazorpay() {
       response.end(JSON.stringify(body));
     };
     try {
-      assert.equal(request.headers.authorization, auth);
       const url = new URL(request.url, 'http://127.0.0.1');
       let raw = '';
       for await (const chunk of request) raw += chunk;
       const body = raw ? JSON.parse(raw) : undefined;
+      if (url.pathname === '/emails') {
+        assert.equal(request.headers.authorization,'Bearer smoke-email');
+        emailCodes.set(body.to[0],body.text.match(/code is ([\w-]{43})/)[1]);
+        return send(200,{id:randomUUID()});
+      }
+      assert.equal(request.headers.authorization, auth);
       if (url.pathname === '/v1/payment_links' && request.method === 'GET') {
         const existing = links.get(url.searchParams.get('reference_id'));
         return send(200, { payment_links: existing ? [existing] : [] });
       }
       if (url.pathname === '/v1/payment_links' && request.method === 'POST') {
+        if (body.description === 'ERA POS subscription') {
+          const link = { id: 'plink_'+randomUUID(), reference_id: body.reference_id, currency: body.currency,
+            amount: body.amount, amount_paid: 0, status:'created',short_url:'https://rzp.io/i/signup-test' };
+          links.set(body.reference_id,link);
+          return send(200,link);
+        }
         assert.equal(body.upi_link, true);
         assert.equal(body.currency, 'INR');
         assert.equal(body.accept_partial, false);
@@ -66,11 +78,13 @@ export async function mockRazorpay() {
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   return {
-    merchant, webhookSecret, links,
+    merchant, webhookSecret, links, emailCodes,
     counts: () => ({ createCalls, refundCalls }),
     env: {
       NODE_ENV: 'test', ERA_RAZORPAY_TEST_ORIGIN: `http://127.0.0.1:${server.address().port}`,
-      ERA_RAZORPAY_ACCOUNTS: JSON.stringify({ [merchant]: { keyId: 'rzp_test_smoke', keySecret: 'mock-test-secret', webhookSecret } }),
+      ERA_SIGNUP_TEST_ORIGIN: `http://127.0.0.1:${server.address().port}`, ERA_SIGNUP_FROM:'sender@example.test', ERA_RESEND_KEY:'smoke-email',
+      ERA_RAZORPAY_ACCOUNTS: JSON.stringify(Object.fromEntries([merchant,'platform-signup'].map(key =>
+        [key,{ keyId: 'rzp_test_smoke', keySecret: 'mock-test-secret', webhookSecret }]))),
     },
     close: () => server.close(),
   };

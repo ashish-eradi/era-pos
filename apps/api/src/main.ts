@@ -18,6 +18,9 @@ import { InventoryController } from './modules/catalog/inventory';
 import { BillingController } from './modules/merchant/billing';
 import { SupportController } from './modules/support/support';
 import { PaymentsController } from './modules/payments/payments';
+import { MerchantWebhooks } from './modules/merchant/webhooks';
+import { BranchShifts } from './modules/cash/branch-shifts';
+import { MerchantSignup } from './modules/onboarding/signup';
 
 const database = openDatabase();
 
@@ -56,7 +59,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController, CashController, ReturnsController, ClosesController, RecoveryController, InventoryController, BillingController, SupportController, PaymentsController],
+  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController, CashController, ReturnsController, ClosesController, RecoveryController, InventoryController, BillingController, SupportController, PaymentsController, MerchantWebhooks, BranchShifts, MerchantSignup],
   providers: [{ provide: MERCHANT_DATABASE, useValue: database }],
 })
 class ApiModule {

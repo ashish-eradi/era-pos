@@ -27,6 +27,7 @@ export type RecoveredReceipt = {
 };
 
 export interface CounterBridge {
+  onShiftChanged(listener: () => void): () => void;
   backup(forUpdate: boolean): Promise<boolean>;
   recoveryHistory(id?: string): Promise<RecoveredReceipt[]>;
   recoverReceipts(): Promise<RecoveredReceipt[]>;

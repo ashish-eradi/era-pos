@@ -8,6 +8,8 @@ import { DailyClose } from './DailyClose';
 import { ReturnApprovals } from './ReturnApprovals';
 import { SupportTickets } from './SupportTickets';
 import { UpiPayments } from './UpiPayments';
+import { BranchShifts } from './BranchShifts';
+import { Signup } from './Signup';
 
 type Session = { merchantId: string; role: string; token: string };
 type Branch = { id: string; name: string; timezone: string; catalogDefaults: string[] };
@@ -29,12 +31,12 @@ export function MerchantHome() {
   }
   return <section aria-labelledby="merchant-title">
     <h2 id="merchant-title">Merchant workspace</h2>
-    {!session ? <Action title="Accept invitation" run={async (form) => {
+    {!session ? <><Signup enter={async active => { setSession(active); await refresh(active); }} /><Action title="Accept invitation" run={async (form) => {
       const active = await request<Session>('invitations/accept', '', { code: values(form).code.trim() });
       setSession(active);
       await refresh(active);
       return '';
-    }}><Field name="code" label="Invitation code" type="password" /></Action> : <>
+    }}><Field name="code" label="Invitation code" type="password" /></Action></> : <>
       <button onClick={() => { setSection("Workspace"); setSession(undefined); setBranches([]); setRegisters([]); }}>End local session</button>
       <nav aria-label="Merchant sections">{['Workspace', ...(session.role === 'owner' ? ['Catalog','Subscription'] : []),
         ...(['owner','manager'].includes(session.role) ? ['Inventory','Returns'] : []),
@@ -44,12 +46,22 @@ export function MerchantHome() {
       {section === 'Subscription' && session.role === 'owner' && <Subscription path={`merchants/${session.merchantId}`} token={session.token} />}
       {section === 'Sales' && session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}`} token={session.token} />}
       {section === 'Workspace' && session.role === 'owner' && <SupportTickets merchantId={session.merchantId} token={session.token} />}
+      {section === 'Workspace' && session.role === 'owner' && <>
+        <Action title="Register sales webhook" run={async form => {
+          const result = await request<{ signingKey: string }>(`merchants/${session.merchantId}/webhook`,session.token,{ url: form.get('url') });
+          return `Store this signing key privately: ${result.signingKey}`;
+        }}><Field name="url" label="Accounting system HTTPS endpoint" type="url" /></Action>
+        <Action title="Remove webhook and pending deliveries" run={async () => {
+          await request(`merchants/${session.merchantId}/webhook`,session.token,undefined,'DELETE'); return 'Webhook removed';
+        }} /></>}
       {section === 'Sales' && session.role === 'owner' && <UpiPayments path={`merchants/${session.merchantId}/upi`} token={session.token} />}
       {!branches.length && <p>No assigned branches.</p>}
       {section !== 'Subscription' && branches.map((branch) => {
         const path = `merchants/${session.merchantId}`;
         return <div key={branch.id}>
           <h3>{branch.name}</h3>
+          {section === 'Workspace' && ['owner','manager'].includes(session.role) &&
+            <BranchShifts path={`${path}/branches/${branch.id}/branch-shifts`} token={session.token} />}
           <p>{branch.timezone}{branch.catalogDefaults.length > 0 && ` · Suggested catalog attributes: ${branch.catalogDefaults.join(', ')}`}</p>
           {['owner','manager','accountant'].includes(session.role) && section === 'Sales' && <DailyClose path={`${path}/branches/${branch.id}`}
             token={session.token} timezone={branch.timezone} canApprove={session.role !== 'accountant'} />}

@@ -77,6 +77,8 @@ export class PlatformController {
       }
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 1))', [contact]);
       const duplicate = await client.query('SELECT 1 FROM trials WHERE owner_email = $1', [contact]);
+      if ((await client.query('SELECT 1 FROM merchant_signups WHERE email=$1 AND plan IS NOT NULL',[contact])).rowCount)
+        throw new ConflictException('A signup already uses this owner email');
       if (duplicate.rowCount) throw new ConflictException('A trial already uses this owner email');
       const merchantId = randomUUID();
       await client.query('INSERT INTO merchants (id, name, country_code, legal_name) VALUES ($1, $2, $3, $4)',

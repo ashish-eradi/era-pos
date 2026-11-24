@@ -10,9 +10,17 @@ type Draft = {
 export function CatalogImport({ path, token }: { path: string; token: string }) {
   const [items, setItems] = useState<Draft['rows']>([]);
   const [sort, setSort] = useState<'sku'|'product'|'priceMinor'>('sku');
-  async function load() { setItems(await request<Draft['rows']>(`${path}/items`, token)); }
+  const [filter, setFilter] = useState('');
+  async function load(query = filter) { setItems(await request<Draft['rows']>(`${path}/items?${query}`, token)); }
   const [preview, setPreview] = useState<{ csv: string; draft: Draft }>();
-  return <><Action title="Load catalog items" run={async () => { await load(); return ''; }} />
+  return <><Action title="Load catalog items" run={async form => {
+    const key = String(form.get('attribute')).trim();
+    const value = String(form.get('value')).trim();
+    if (!!key !== !!value) throw new Error('Enter both an attribute and a value');
+    const query = key ? new URLSearchParams([[key,value]]).toString() : '';
+    await load(query); setFilter(query); return '';
+  }}><label>Attribute<input name="attribute" placeholder="size" /></label>
+    <label>Value<input name="value" placeholder="M" /></label></Action>
     <label>Sort items<select value={sort} onChange={e => setSort(e.target.value as typeof sort)}>
       <option value="sku">SKU</option><option value="product">Product</option><option value="priceMinor">Price</option>
     </select></label>

@@ -78,7 +78,16 @@ export class SupportController {
         [device, bearer(authorization)]);
       if (!valid.rowCount) throw new UnauthorizedException();
     }
-    return { received: true };
+    const scope = [device, bearer(authorization)];
+    if (data.appliedCommand) {
+      await this.database.query(`UPDATE branch_shift_commands c SET applied_at=coalesce(applied_at,now()) FROM registers r
+        WHERE r.device_id=$1 AND r.pairing_digest=$2 AND r.status='active' AND c.merchant_id=r.merchant_id
+        AND c.register_id=r.id AND c.request_id=$3`, [...scope,uuid(data.appliedCommand,'command')]);
+    }
+    const commands = await this.database.query(`SELECT c.request_id AS id,c.shift_id AS "shiftId",c.action,c.amount
+      FROM branch_shift_commands c JOIN registers r ON r.merchant_id=c.merchant_id AND r.id=c.register_id
+      WHERE r.device_id=$1 AND r.pairing_digest=$2 AND r.status='active' AND c.applied_at IS NULL ORDER BY sequence LIMIT 1`,scope);
+    return { received: true, command: commands.rows[0] };
   }
 
   @Get('platform/support/queue')

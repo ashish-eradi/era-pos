@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  BadRequestException, Body, ConflictException, Controller, Get, Headers, Inject, NotFoundException, Param, Post, UnauthorizedException,
+  BadRequestException, Body, ConflictException, Controller, Get, Headers, Inject, NotFoundException, Param, Post, Query, UnauthorizedException,
 } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
 import { MERCHANT_DATABASE } from '../merchant/merchant.controller';
@@ -40,11 +40,13 @@ export class CatalogController {
   constructor(@Inject(MERCHANT_DATABASE) private readonly database: Pool) {}
 
   @Get('merchants/:merchantId/branches/:branchId/catalog/items')
-  list(@Param('merchantId') merchant: string, @Param('branchId') branch: string, @Headers('authorization') authorization?: string) {
+  list(@Param('merchantId') merchant: string, @Param('branchId') branch: string, @Query() query: Record<string,unknown>,
+    @Headers('authorization') authorization?: string) {
     return transaction(this.database, async client => {
       await owner(client, merchant, authorization);
+      const attributes = Object.fromEntries(Object.entries(query).map(([key,value]) => [text(key,'attribute',40),text(value,'value',80)]));
       return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",attributes FROM branch_catalog
-        WHERE merchant_id=$1 AND branch_id=$2 ORDER BY sku`, [merchant,branch])).rows;
+        WHERE merchant_id=$1 AND branch_id=$2 AND attributes @> $3::jsonb ORDER BY sku`, [merchant,branch,JSON.stringify(attributes)])).rows;
     });
   }
 

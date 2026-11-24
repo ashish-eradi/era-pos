@@ -100,6 +100,7 @@ export async function checkOnboarding(port, connectionString) {
     assert.deepEqual(snapshot.items.map(({ sku, onHand }) => [sku, onHand]), [['NOTE-A5', 10], ['OATS-500', 8], ['TEE-M-NAVY', 5]]);
     assert.equal(snapshot.items[0].barcode, '0012345678905');
     assert.equal(snapshot.items[2].attributes.size, 'M');
+    assert.deepEqual((await call(`${importPath}/items?size=M`, owner.token, 200)).map(row => row.sku), ['TEE-M-NAVY']);
     await call('devices/catalog', randomBytes(32).toString('base64url'), 401, { deviceId });
 
     const other = await call('platform/trials', admin, 201, {
@@ -120,9 +121,15 @@ export async function checkOnboarding(port, connectionString) {
     await call(`${otherPath}/preview`, owner.token, 401, { csv: otherCsv });
     const otherDraft = await call(`${otherPath}/preview`, otherOwner.token, 201, { csv: otherCsv });
     await call(`${otherPath}/confirm`, otherOwner.token, 201, { csv: otherCsv, digest: otherDraft.digest });
+    await call(`${otherMerchant}/webhook`,otherOwner.token,400,{url:'https://127.0.0.1/private'});
+    await db.query('INSERT INTO merchant_webhooks VALUES($1,$2,$3)',[other.merchantId,'https://127.0.0.1/test','test-key']);
     execFileSync(process.execPath, ['tests/smoke/counter-api.mjs'], { stdio: 'inherit', timeout: 45000,
       env: { ...process.env, ERA_API_ORIGIN: `http://127.0.0.1:${port}`, TEST_PROOF: otherProof,
-        TEST_DEVICE: otherDevice, TEST_ACTIVATION: otherActivation.code } });
+        TEST_DEVICE: otherDevice, TEST_ACTIVATION: otherActivation.code, TEST_OWNER: otherOwner.token } });
+    const deliveries = await db.query('SELECT event,payload FROM webhook_deliveries WHERE merchant_id=$1',[other.merchantId]);
+    assert.deepEqual(deliveries.rows.map(row => row.event).sort(),['sale.created','shift.closed','shift.closed']);
+    assert.ok(deliveries.rows.every(row => row.payload.register_id === otherRegister.id));
+    await call(`${otherMerchant}/webhook`,otherOwner.token,200,undefined,'DELETE');
     await call('devices/catalog', otherProof, 401, { deviceId });
     const otherSnapshot = await call('devices/catalog', otherProof, 201, { deviceId: otherDevice });
     assert.equal(otherSnapshot.currency, 'USD');
