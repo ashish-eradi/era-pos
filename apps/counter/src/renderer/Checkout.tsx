@@ -42,6 +42,32 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
     : `${amount} minor units`;
   const items = catalog?.items ?? [];
   const payment = state?.upi;
+  useEffect(() => {
+    if (!state?.shift || busy || close || payment || !catalog) return;
+    let buffer = '';
+    let lastKey = 0;
+    function scan(event: KeyboardEvent) {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing ||
+          (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]'))) {
+        buffer = '';
+        return;
+      }
+      if (event.timeStamp - lastKey > 100) buffer = '';
+      lastKey = event.timeStamp;
+      if (event.key === 'Enter') {
+        const item = buffer && catalog?.items.find(({ barcode }) => barcode === buffer);
+        buffer = '';
+        if (item) {
+          event.preventDefault();
+          setCart((current) => (current[item.sku] ?? 0) < Math.min(1000, item.onHand)
+            ? { ...current, [item.sku]: (current[item.sku] ?? 0) + 1 } : current);
+        }
+      } else if (event.key.length === 1) buffer += event.key;
+      else if (event.key !== 'Shift') buffer = '';
+    }
+    window.addEventListener('keydown', scan, true);
+    return () => window.removeEventListener('keydown', scan, true);
+  }, [catalog, state?.shift, busy, close, payment]);
   const lines = items.filter(({ sku }) => cart[sku]).map((item) => ({
     sku: item.sku, product: item.product, unitMinor: item.priceMinor, quantity: cart[item.sku],
   }));
@@ -62,7 +88,7 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
 
   function add(sku: string) {
     const available = items.find((item) => item.sku === sku)?.onHand ?? 0;
-    setCart((current) => (current[sku] ?? 0) < available
+    setCart((current) => (current[sku] ?? 0) < Math.min(1000, available)
       ? { ...current, [sku]: (current[sku] ?? 0) + 1 } : current);
   }
 
@@ -137,14 +163,29 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
           <label>Search products or scan a barcode<input value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         </form>
         {matches.length ? <ul>{matches.map((item) => <li key={item.sku}>
-          <button type="button" disabled={busy || !!payment || (cart[item.sku] ?? 0) >= item.onHand} onClick={() => add(item.sku)}>Add {item.product}</button>
+          <button type="button" disabled={busy || !!payment || (cart[item.sku] ?? 0) >= Math.min(1000, item.onHand)} onClick={() => add(item.sku)}>Add {item.product}</button>
           {' '}{item.sku} · {item.barcode} · {money(item.priceMinor)} · {item.onHand} on hand
           {Object.entries(item.attributes).map(([key, value]) => <span key={key}> · {key} {value}</span>)}
         </li>)}</ul> : <p>{catalog ? 'No matching products.' : 'Download the catalog to check out.'}</p>}
         {lines.length > 0 && <form onSubmit={sell}>
           <fieldset disabled={busy}>
             <legend>Payment</legend>
-            <ul>{lines.map((line) => <li key={line.sku}>{line.product} × {line.quantity}{' '}
+            <ul>{lines.map((line) => <li key={line.sku}>{line.product}{' '}
+              <label>Quantity<input aria-label={`Quantity for ${line.product}`} type="number" min="1"
+                max={Math.min(1000, items.find(({ sku }) => sku === line.sku)!.onHand)}
+                key={line.quantity} defaultValue={line.quantity} required disabled={!!payment}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  }
+                }}
+                onBlur={(event) => {
+                  const field = event.currentTarget;
+                  const quantity = field.valueAsNumber;
+                  if (field.validity.valid) setCart((current) => ({ ...current, [line.sku]: quantity }));
+                  else field.value = String(line.quantity);
+                }} /></label>
               <button type="button" disabled={!!payment} onClick={() => setCart((current) => ({ ...current, [line.sku]: Math.max(0, current[line.sku] - 1) }))}>Remove one</button>
             </li>)}</ul>
             <p>Subtotal {money(cashSubtotal(lines))}</p>
