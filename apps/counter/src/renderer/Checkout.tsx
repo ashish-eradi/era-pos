@@ -6,7 +6,7 @@ import { cashSubtotal } from '@era/contracts';
 import type { CatalogSnapshotV1 } from '@era/contracts';
 import type { CashState } from '../bridge';
 
-export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshotV1; reloadCatalog: () => Promise<void> }) {
+export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: string; navigate: (page: string) => void; catalog?: CatalogSnapshotV1; reloadCatalog: () => Promise<void> }) {
   const [state, setState] = useState<CashState>();
   const [cart, setCart] = useState<Record<string, number>>({});
   const [query, setQuery] = useState('');
@@ -19,6 +19,7 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
   const [discount, setDiscount] = useState(false);
   const [fallback, setFallback] = useState(false);
   const [close, showClose] = useState(false);
+  const [returnId, setReturnId] = useState("");
   const [lastReceipt, setLastReceipt] = useState('');
 
   useEffect(() => {
@@ -66,7 +67,7 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
     return () => window.clearInterval(timer);
   }, [payment, busy]);
   useEffect(() => {
-    if (!state?.shift || busy || close || payment || !catalog) return;
+    if (page !== "Sell" || !state?.shift || busy || close || payment || !catalog) return;
     let buffer = '';
     let lastKey = 0;
     function scan(event: KeyboardEvent) {
@@ -90,7 +91,7 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
     }
     window.addEventListener('keydown', scan, true);
     return () => window.removeEventListener('keydown', scan, true);
-  }, [catalog, state?.shift, busy, close, payment]);
+  }, [page, catalog, state?.shift, busy, close, payment]);
   const lines = items.filter(({ sku }) => cart[sku]).map((item) => ({
     sku: item.sku, product: item.product, unitMinor: item.priceMinor, quantity: cart[item.sku],
   }));
@@ -168,7 +169,9 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
   }
 
   return <section aria-labelledby="checkout-title">
-    <h2 id="checkout-title">Checkout</h2>
+    <header className="counter-heading"><h2 id="checkout-title">{page === 'Sell' ? 'Checkout' : page}</h2>
+      <button onClick={() => navigate('Register')}>{state?.shift ? 'Shift open' : 'Shift closed'} · {pending} pending · {state?.rejected ?? 0} need review</button></header>
+    <div hidden={page !== 'Sell'}>
     {!state?.shift ? <form onSubmit={(event) => count(event, false)}>
       <label>Opening cash (minor units)<input name="amount" type="number" min="0" step="1" required defaultValue="0" /></label>
       <button disabled={busy || !state}>Open shift</button>
@@ -247,10 +250,11 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
         </form>}</aside>
       </div>}
     </>}
+    </div>
     {notice && <p role="status">{notice}</p>}
     {error && <p role="alert">{error}</p>}
     {state && <>
-      <p>{state.pending} pending · {state.rejected} need review</p>
+      <div className="panel" hidden={page !== "Register"}><h3>Sync queue</h3><p>{state.pending} pending · {state.rejected} need review</p>
       <ul>{state.queue.map(entry => <li key={entry.id}>
         {entry.id} · {entry.status} · {entry.attempts} sync attempts {entry.error}
         {entry.status === 'rejected' && <button disabled={busy} onClick={() => void run(async () =>
@@ -259,11 +263,16 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
       <button disabled={busy} onClick={() => void run(async () => { setState(await window.counter.syncCash()); setNotice('Sync checked.'); })}>
         Sync sales
       </button>
+      </div>
+      {page === 'Sell' && lastReceipt && <button onClick={() => void run(() => window.counter.printReceipt(lastReceipt))}>Print receipt</button>}
+      <div className="panel" hidden={page !== 'Receipts'}>
+      {!state.receipts.length && <p>No saved receipts yet.</p>}
       {state.receipts.length > 0 && <><h3>Recent receipts</h3><ul>{state.receipts.map((sale) => <li key={sale.operationId}>
         {new Date(sale.occurredAt).toLocaleString()} · {money(cashSubtotal(sale.payload.lines) - sale.payload.discountMinor, sale.payload.currency)} · {sale.status}{' '}
         <button disabled={busy} onClick={() => void run(() => window.counter.printReceipt(sale.operationId))}>
           {sale.operationId === lastReceipt ? 'Print receipt' : 'Reprint receipt'}
         </button>
+        {state.shift && <button onClick={() => {setReturnId(sale.operationId); navigate("Returns");}}>Start return</button>}
         <details><summary>Receipt details</summary>
           <p>Receipt <code>{sale.operationId}</code></p>
           <ul>{sale.payload.lines.map((line) => <li key={line.sku}>{line.product} × {line.quantity} · {money(line.unitMinor, sale.payload.currency)} each</li>)}</ul>
@@ -277,7 +286,7 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
         <label>Find an older receipt<input name="receipt" required /></label>
         <button disabled={busy}>Print by receipt ID</button>
       </form>
-    </>}
-    <Returns open={!!state?.shift} />
+    </div></>}
+    {page === "Returns" && <Returns initialId={returnId} open={!!state?.shift} />}
   </section>;
 }

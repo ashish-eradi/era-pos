@@ -16,3 +16,13 @@ small { display:block; color:var(--muted); }
 .total { display:grid; background:#eaf1de; border-radius:.7rem; padding:1rem; margin:0; }
 .total strong { font-size:1.8rem; }
 @media(max-width:700px){ .sell-grid { grid-template-columns:1fr; } .basket {position:static;} }
+
+.counter-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.6rem; margin:1.5rem 0; }
+.counter-heading h2 { margin:0; }
+.counter-heading button { background:#e1eadb; color:var(--pine); }
+.mast span:last-child { overflow-wrap:anywhere; font-size:.85rem; }
+.setup-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(14rem,1fr)); gap:1rem; margin:1rem 0; }
+.setup-grid section,.canvas>details { background:var(--card); border:1px solid var(--line); padding:1rem; border-radius:1rem; }
+.setup-grid h2 { font-size:1.25rem; }
+.canvas form>button { margin-top:.7rem; }
+.canvas code { font-size:.86rem; }

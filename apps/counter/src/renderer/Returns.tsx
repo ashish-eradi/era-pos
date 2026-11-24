@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { ReturnReceipt, ReturnRequest } from '@era/contracts';
 
-export function Returns({ open }: { open: boolean }) {
+export function Returns({ open, initialId }: { open: boolean; initialId: string }) {
   const [rows, setRows] = useState<Array<{ draft: ReturnRequest; receipt: ReturnReceipt | null }>>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -31,15 +31,17 @@ export function Returns({ open }: { open: boolean }) {
     };
     void run(async () => {
       try { setRows(await window.counter.changeReturn(draft.id,'create',draft)); }
-      finally { setRows(await window.counter.returns()); form.reset(); }
+      finally { setRows(await window.counter.returns()); }
+      form.reset();
     });
   }
 
   return <section>
     <h2>Receipt returns and exchanges</h2>
+    {!open && <p>Open a shift to request a return.</p>}
     {open && <form onSubmit={submit}><fieldset disabled={busy}>
       <legend>Request approval</legend>
-      <label>Original receipt ID <input name="saleId" required /></label>
+      <label>Original receipt ID <input name="saleId" defaultValue={initialId} required /></label>
       <label>Return SKU <input name="sku" required /></label>
       <label>Quantity <input name="quantity" type="number" min="1" max="1000" defaultValue="1" required /></label>
       <label>Condition <select name="disposition"><option value="sellable">Sellable</option><option value="damaged">Damaged</option></select></label>

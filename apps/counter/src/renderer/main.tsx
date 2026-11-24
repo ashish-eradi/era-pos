@@ -14,6 +14,7 @@ declare global {
 }
 
 function Counter() {
+  const [page, setPage] = useState("Sell");
   const [status, setStatus] = useState('Checking local storage…');
   const [schemaReady, setSchemaReady] = useState(false);
   const [paired, setPaired] = useState<Pairing>();
@@ -63,8 +64,12 @@ function Counter() {
   }
 
 
-  return <main>
-    <h1>ERA POS Counter</h1>
+  const setup = !paired || !authorized || !catalog;
+  return <><header className="mast"><span className="brand">ERA POS</span><span>{paired ? `Branch ${paired.branchId} · Register ${paired.registerId}` : 'Register setup'}</span></header>
+    <main className="canvas">
+    {paired && <nav className="tabs" aria-label="Counter workspace">{['Sell','Receipts','Returns','Register'].map(name =>
+      <button key={name} aria-current={page === name ? 'page' : undefined} onClick={() => setPage(name)}>{name}</button>)}</nav>}
+    <div className="setup-grid" hidden={!setup && page !== 'Register'}>
     <section aria-labelledby="storage-title">
       <h2 id="storage-title">Local storage</h2>
       <p role="status">{status}</p>
@@ -87,9 +92,10 @@ function Counter() {
         <p>Published version {catalog.version} · {catalog.items.length} items</p>
       </>}
     </section>}
-    {paired && <Checkout key={paired.registerId} catalog={catalog} reloadCatalog={async () => setCatalog(await window.counter.catalog())} />}
-    {schemaReady && <Maintenance readyForRecovery={!!paired && authorized} />}
-  </main>;
+    </div>
+    {paired && <Checkout page={page} navigate={setPage} key={paired.registerId} catalog={catalog} reloadCatalog={async () => setCatalog(await window.counter.catalog())} />}
+    {schemaReady && page === "Register" && <Maintenance readyForRecovery={!!paired && authorized} />}
+  </main></>;
 }
 
 createRoot(document.getElementById('root')!).render(<Counter />);
