@@ -7,7 +7,7 @@ export function Signup({ enter }: { enter:(session: Session) => Promise<void> })
   const [token,setToken] = useState('');
   const [plans,setPlans] = useState<Plan[]>([]);
   const [url,setUrl] = useState('');
-  return <details><summary>Self-serve merchant signup</summary>
+  return <details><summary>Create or access a paid account</summary>
     {!token ? <>
       <Action title="Send email verification" run={async form => {
         await request('signup/email','',values(form)); return 'Check your email for a verification code.';

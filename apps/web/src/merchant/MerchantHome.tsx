@@ -67,7 +67,7 @@ export function MerchantHome() {
         }}><Field name="url" label="Accounting system HTTPS endpoint" type="url" /></Action>
         <Action title="Remove webhook and pending deliveries" run={async () => {
           await request(`merchants/${session.merchantId}/webhook`,session.token,undefined,'DELETE'); return 'Webhook removed';
-        }} /></>}
+        }}><label><input type="checkbox" required/>Discard outstanding webhook deliveries for this account</label></Action></>}
       {section === 'Payments' && session.role === 'owner' && <UpiPayments path={`merchants/${session.merchantId}/upi`} token={session.token} />}
       {!branches.length && <p>No assigned branches.</p>}
       {['Catalog','Inventory','Sales','Returns','Team and registers'].includes(section) && branches.filter(b=>b.id === branch?.id).map((branch) => {

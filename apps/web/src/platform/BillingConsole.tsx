@@ -13,8 +13,7 @@ export function BillingConsole({ token, access, refresh }: { token: string; acce
   const [detail, setDetail] = useState<Detail>();
   async function load(id: string) { setDetail(await request<Detail>(`platform/billing/${id}`,token)); }
   const path = detail && `platform/billing/${detail.merchantId}`;
-  return <details>
-    <summary>Subscription billing and offboarding</summary>
+  return <section className="panel"><h3>Merchant account</h3>
     <Action title="Load merchant account" run={async (form) => { await load(values(form).merchant); return ''; }}>
       <label>Merchant<select name="merchant" required>
         <option value="">Select a merchant</option>
@@ -23,6 +22,7 @@ export function BillingConsole({ token, access, refresh }: { token: string; acce
     </Action>
     {detail && path && <div key={detail.merchantId}>
       <h3>{detail.name} · {detail.country}</h3>
+      <p>Merchant ID <code>{detail.merchantId}</code></p>
       <p>{detail.status}{detail.paidThrough && ` · Paid through ${detail.paidThrough}`}{detail.graceUntil && ` · Grace through ${detail.graceUntil}`}</p>
       {access.role === 'finance' && <Action title="Issue subscription invoice" run={async (form) => {
         const fields = values(form);
@@ -89,5 +89,5 @@ export function BillingConsole({ token, access, refresh }: { token: string; acce
         {detail.closureExportId && <p>Owner archive {detail.closureExportId}</p>}
       </>}
     </div>}
-  </details>;
+  </section>;
 }
