@@ -154,11 +154,11 @@ export class ReturnsController {
   list(@Param('merchantId') merchant: string, @Param('branchId') branch: string, @Headers('authorization') authorization?: string) {
     return transaction(this.database, async (client) => {
       await branchActor(client,merchant,branch,approvers,authorization);
-      const { rows } = await client.query<Stored>(`
+      const { rows } = await client.query<Stored & { created_at: Date }>(`
         SELECT * FROM sale_returns WHERE merchant_id = $1 AND branch_id = $2
         ORDER BY CASE WHEN status IN ('requested','pending_refund') THEN 0 ELSE 1 END,created_at DESC LIMIT 100
       `, [merchant,branch]);
-      return rows.map(view);
+      return rows.map(row => ({ ...view(row), registerId: row.register_id, requestedAt: row.created_at }));
     });
   }
 

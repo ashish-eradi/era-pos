@@ -8,8 +8,22 @@ type Draft = {
 };
 
 export function CatalogImport({ path, token }: { path: string; token: string }) {
+  const [items, setItems] = useState<Draft['rows']>([]);
+  const [sort, setSort] = useState<'sku'|'product'|'priceMinor'>('sku');
+  async function load() { setItems(await request<Draft['rows']>(`${path}/items`, token)); }
   const [preview, setPreview] = useState<{ csv: string; draft: Draft }>();
-  return <details>
+  return <><Action title="Load catalog items" run={async () => { await load(); return ''; }} />
+    <label>Sort items<select value={sort} onChange={e => setSort(e.target.value as typeof sort)}>
+      <option value="sku">SKU</option><option value="product">Product</option><option value="priceMinor">Price</option>
+    </select></label>
+    <table><thead><tr><th>SKU</th><th>Barcode</th><th>Product and price</th></tr></thead>
+      <tbody>{[...items].sort((a,b) => sort === 'priceMinor' ? a.priceMinor-b.priceMinor : a[sort].localeCompare(b[sort])).map(item =>
+        <tr key={item.sku}><td>{item.sku}</td><td>{item.barcode}</td><td><Action key={JSON.stringify(item)} title="Save item" run={async form => {
+          await request(`${path}/items`, token, { sku: item.sku, product: form.get('product'), priceMinor: Number(form.get('price')) });
+          await load(); return 'Saved';
+        }}><label>Product<input name="product" required maxLength={150} defaultValue={item.product} /></label>
+          <label>Price (minor units)<input name="price" required type="number" min="0" max="1000000000" defaultValue={item.priceMinor} /></label>
+        </Action></td></tr>)}</tbody></table><details>
     <summary>Import catalog and opening stock</summary>
     <p>Prices use minor units. Leave opening stock blank to preserve previously recorded stock.</p>
     <Action title="Preview CSV" run={async (form) => {
@@ -37,5 +51,5 @@ export function CatalogImport({ path, token }: { path: string; token: string }) 
         return result.replayed ? `Already imported as version ${result.version}.` : `Version ${result.version} is available to paired counters.`;
       }} />
     </>)}
-  </details>;
+  </details></>;
 }

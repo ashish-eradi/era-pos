@@ -3,13 +3,16 @@ import type { ReturnReceipt } from '@era/contracts';
 import { Action, request } from '../onboarding';
 
 export function ReturnApprovals({ path, token }: { path: string; token: string }) {
-  const [returns, setReturns] = useState<ReturnReceipt[]>([]);
-  async function load() { setReturns(await request<ReturnReceipt[]>(path,token)); }
-  return <details>
-    <summary>Return approvals</summary>
+  type Entry = ReturnReceipt & { registerId: string; requestedAt: string };
+  const [returns, setReturns] = useState<Entry[]>([]);
+  async function load() { setReturns(await request<Entry[]>(path,token)); }
+  return <section>
+    <h4>Return approvals</h4>
     <Action title="Load returns" run={async () => { await load(); return ''; }} />
-    {returns.map((item) => <details key={item.id}>
-      <summary>{item.id} · {item.status}</summary>
+    {[...new Set(returns.map(item => item.registerId))].map(register => <section key={register}><h4>Register {register}</h4>
+    {returns.filter(item => item.registerId === register).map((item) => <details key={item.id}>
+      <summary>{item.id} · {item.status} {['requested','pending_refund'].includes(item.status) &&
+        `· Waiting ${Math.max(0, Math.floor((Date.now()-Date.parse(item.requestedAt))/60000))} min`}</summary>
       <p>Original receipt {item.saleId} · {item.reason}</p>
       <ul>{item.lines.map((line) => <li key={line.sku}>{line.product} × {line.quantity} · {line.disposition}</li>)}</ul>
       {item.replacement && <p>Replacement {item.replacement.product} × {item.replacement.quantity}</p>}
@@ -21,6 +24,6 @@ export function ReturnApprovals({ path, token }: { path: string; token: string }
         await load();
         return result.status;
       }} />}
-    </details>)}
-  </details>;
+    </details>)}</section>)}
+  </section>;
 }

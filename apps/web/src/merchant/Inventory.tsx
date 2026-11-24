@@ -13,28 +13,31 @@ type InventoryState = {
 export function Inventory({ path, token }: { path: string; token: string }) {
   const [state, setState] = useState<InventoryState>();
   async function load() { setState(await request<InventoryState>(path,token)); }
-  return <details>
-    <summary>Branch inventory</summary>
+  return <section>
+    <h4>Branch inventory</h4>
     <Action title="Load inventory" run={async () => { await load(); return ''; }} />
     {state && <table>
       <thead><tr><th>SKU</th><th>Product</th><th>Sellable</th><th>Damaged</th></tr></thead>
       <tbody>{state.items.map((item) => <tr key={item.sku}><td>{item.sku}</td><td>{item.product}</td><td>{item.onHand}</td><td>{item.damaged}</td></tr>)}</tbody>
     </table>}
-    <Action title="Record inventory document" run={async (form) => {
+    {state && <Action title="Record inventory document" run={async (form) => {
       const data = values(form);
-      const lines = data.lines.trim().split(/\r?\n/).map((entry) => {
-        const separator = entry.lastIndexOf(',');
-        if (separator === -1 || !entry.slice(separator + 1).trim()) throw new Error('Enter one SKU,quantity pair per line');
-        return { sku: entry.slice(0,separator).trim(), quantity: Number(entry.slice(separator + 1)) };
+      const lines = state.items.flatMap(({ sku }, index) => {
+        const quantity = form.get(`quantity-${index}`);
+        return quantity === '' || quantity == null ? [] : [{ sku, quantity: Number(quantity) }];
       });
+      if (!lines.length) throw new Error('Enter a quantity for at least one item');
       const result = await request<{ duplicate: boolean }>(`${path}/${data.kind}`,token,{ reference: data.reference, lines });
       await load();
       return result.duplicate ? 'Duplicate document. Stock was already recorded or the count is awaiting approval.' : 'Document recorded';
     }}>
       <label>Type<select name="kind"><option value="delivery">Supplier delivery</option><option value="count">Stock count</option></select></label>
       <Field name="reference" label="Delivery or count reference" />
-      <label>Items (SKU,quantity per line)<textarea name="lines" required rows={4} /></label>
-    </Action>
+      <table><thead><tr><th>Item</th><th>Document quantity</th></tr></thead><tbody>
+        {state.items.map((item,index) => <tr key={item.sku}><td>{item.product} ({item.sku})</td><td>
+          <input aria-label={`Quantity for ${item.sku}`} type="number" min="0" step="1" name={`quantity-${index}`} />
+        </td></tr>)}</tbody></table>
+    </Action>}
     {state?.documents.map((doc) => <details key={doc.id}>
       <summary>{doc.kind} {doc.reference} · {doc.approved_by ? 'Posted' : 'Awaiting approval'}</summary>
       <ul>{doc.lines.map((line) => <li key={line.sku}>{line.sku} · {line.quantity}{line.onHand !== undefined && ` counted, ${line.onHand} expected`}</li>)}</ul>
@@ -45,5 +48,5 @@ export function Inventory({ path, token }: { path: string; token: string }) {
         return 'Count approved';
       }}><Field name="reason" label="Reason for approval" /></Action>}
     </details>)}
-  </details>;
+  </section>;
 }
