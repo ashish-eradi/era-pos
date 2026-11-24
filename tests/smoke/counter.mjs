@@ -141,7 +141,7 @@ async function launch(activate = false) {
   let log = '';
   counter.stderr.on('data', (chunk) => { log += chunk; });
   try {
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 120; i++) {
       if (counter.exitCode !== null) break;
       const endpoint = log.match(/DevTools listening on ws:\/\/(127\.0\.0\.1:\d+)/)?.[1];
       if (endpoint) {
@@ -175,7 +175,21 @@ async function launch(activate = false) {
             const complete = button('Complete cash sale');
             if (${!online}) {
               if (next === 0 && open) { window.checkoutStep = 1; open.click(); }
-              if (next === 1 && add) { window.checkoutStep = 2; add.click(); }
+              if (next === 1 && add) {
+                window.checkoutStep = 1.5;
+                for (let scan=0; scan<2; scan++) {
+                  for (const key of [...'0012345678905','Enter'])
+                    document.body.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));
+                }
+              }
+              if (next === 1.5 && complete) {
+                const quantity = checkout.querySelector('[aria-label="Quantity for A5 notebook"]');
+                if (quantity?.value !== '2') throw new Error('Scanner did not add both items');
+                quantity.focus();
+                quantity.value = '1';
+                quantity.blur();
+                window.checkoutStep = 2;
+              }
               if (next === 2 && complete) {
                 complete.form.elements.tendered.value = '13000';
                 window.checkoutStep = 3;
@@ -196,9 +210,8 @@ async function launch(activate = false) {
             } else if (next === 3 && button('Start UPI payment')) {
               window.checkoutStep = 4;
               button('Start UPI payment').click();
-            } else if (next === 4 && button('Check UPI status') && checkout.querySelector('input[readonly]')?.value === 'https://rzp.io/i/counter-test') {
+            } else if (next === 4 && checkout.querySelector('svg title')?.textContent === 'Scan to pay by UPI' && checkout.querySelector('input[readonly]')?.value === 'https://rzp.io/i/counter-test') {
               window.checkoutStep = 5;
-              button('Check UPI status').click();
             } else if (next === 5 && button('Record UPI sale') && !complete) {
               window.checkoutStep = 6;
               button('Record UPI sale').click();

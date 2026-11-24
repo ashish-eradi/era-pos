@@ -69,12 +69,12 @@ export function cashState(database: DatabaseSync): CashState {
   };
 }
 
-export function startShift(database: DatabaseSync, amount: number): CashState {
+export function startShift(database: DatabaseSync, amount: number, shiftId: string = randomUUID()): CashState {
   const identity = register(database);
   if (!cashAmount(amount)) throw new Error('Enter an opening cash amount in minor units');
   if (openShift(database, identity.registerId)) throw new Error('A shift is already open');
   database.prepare('INSERT INTO cash_shifts (id, register_id, opened_at, float_minor) VALUES (?, ?, ?, ?)')
-    .run(randomUUID(), identity.registerId, new Date().toISOString(), amount);
+    .run(shiftId, identity.registerId, new Date().toISOString(), amount);
   return cashState(database);
 }
 

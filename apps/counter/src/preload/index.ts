@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { CounterBridge } from '../bridge';
 
 const bridge: CounterBridge = {
+  onShiftChanged: listener => {
+    ipcRenderer.on('counter:shift-changed',listener);
+    return () => { ipcRenderer.removeListener('counter:shift-changed',listener); };
+  },
   backup: (forUpdate) => ipcRenderer.invoke('counter:backup',forUpdate),
   recoveryHistory: (id) => ipcRenderer.invoke('counter:recovery-history',id),
   recoverReceipts: () => ipcRenderer.invoke('counter:recover-receipts'),

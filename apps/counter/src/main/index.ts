@@ -29,7 +29,9 @@ async function start(): Promise<void> {
   function heartbeat() {
     if (heartbeatPending) return;
     heartbeatPending = true;
-    void reportHeartbeat(storage, app.getVersion()).catch(() => undefined).finally(() => { heartbeatPending = false; });
+    void reportHeartbeat(storage, app.getVersion()).then(changed => {
+      if (changed) window.webContents.send('counter:shift-changed');
+    }).catch(() => undefined).finally(() => { heartbeatPending = false; });
   }
   heartbeat();
   heartbeatTimer = setInterval(heartbeat, 60_000);

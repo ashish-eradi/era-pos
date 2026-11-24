@@ -5,6 +5,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import pg from 'pg';
 import { checkMerchantScope } from './merchant-scope.mjs';
 import { checkOnboarding } from './onboarding.mjs';
+import { checkSignup } from './signup.mjs';
+import { checkWebhookDelivery } from './webhook.mjs';
 import { checkPayments, mockRazorpay } from './payments.mjs';
 
 const { DATABASE_URL } = process.env;
@@ -75,6 +77,8 @@ try {
   await checkMerchantScope(port, DATABASE_URL);
   await checkOnboarding(port, DATABASE_URL);
   await checkPayments(port, DATABASE_URL, provider);
+  await checkSignup(port, DATABASE_URL, provider);
+  await checkWebhookDelivery();
 } finally {
   provider.close();
   await Promise.all([api, worker].map(async ({ child }) => {

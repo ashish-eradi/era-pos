@@ -29,6 +29,10 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
     }).catch(() => setError('Checkout storage is unavailable'));
   }, []);
   const pending = state?.pending ?? 0;
+  useEffect(() => window.counter.onShiftChanged(() => {
+    setCart({}); setDiscount(false); showClose(false); setOperationId(crypto.randomUUID());
+    void window.counter.cashState().then(setState).catch(() => setError('Unable to refresh shift'));
+  }), []);
   useEffect(() => {
     if (!pending) return;
     const reconnect = () => { void window.counter.syncCash().then(setState).catch(() => undefined); };

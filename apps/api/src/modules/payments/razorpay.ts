@@ -35,6 +35,9 @@ async function request<T>(merchant: string, path: string, body?: object, idempot
 }
 
 export const razorpay = {
+  signup: (reference: string, amount: number, currency: string) => request<Link>('platform-signup','payment_links',{
+    reference_id: reference, amount, currency, accept_partial: false, description: 'ERA POS subscription',
+  }),
   requireAccount: (merchant: string): void => { account(merchant); },
   find: async (merchant: string, reference: string) => {
     const result = await request<{ payment_links: Link[] }>(merchant, `payment_links?reference_id=${encodeURIComponent(reference)}`);
