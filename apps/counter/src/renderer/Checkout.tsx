@@ -1,4 +1,5 @@
 import { Returns } from './Returns';
+import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { cashSubtotal } from '@era/contracts';
@@ -42,6 +43,22 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
     : `${amount} minor units`;
   const items = catalog?.items ?? [];
   const payment = state?.upi;
+  const [seconds, setSeconds] = useState(10);
+  useEffect(() => {
+    if (payment?.status !== 'pending' || !payment.shortUrl || busy) return;
+    let remaining = 10;
+    setSeconds(remaining);
+    const timer = window.setInterval(() => {
+      setSeconds(--remaining);
+      if (remaining > 0) return;
+      window.clearInterval(timer);
+      setBusy(true);
+      void window.counter.upi().then(() => window.counter.cashState()).then(setState)
+        .catch(() => setError('UPI status unavailable. Checking again shortly.'))
+        .finally(() => setBusy(false));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [payment, busy]);
   useEffect(() => {
     if (!state?.shift || busy || close || payment || !catalog) return;
     let buffer = '';
@@ -192,15 +209,23 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
             {catalog?.currency === 'INR' && !payment && !discount && <button type="button" onClick={() => checkUpi(true)}>Start UPI payment</button>}
             {payment && <>
               <p>UPI {payment.status} · {money(payment.amountMinor)}</p>
+              {payment.shortUrl && payment.status === 'pending' && <>
+                <QRCodeSVG value={payment.shortUrl} size={192} marginSize={4} title="Scan to pay by UPI" />
+                <p>{busy ? 'Checking payment…' : `Next payment check in ${seconds}s`}</p>
+              </>}
               {payment.shortUrl && payment.status === 'pending' && <label>Customer payment link<input value={payment.shortUrl} readOnly onFocus={(event) => event.target.select()} /></label>}
               {payment.status === 'pending' && <button type="button" onClick={() => checkUpi(!payment.shortUrl)}>Check UPI status</button>}
               {payment.status === 'paid' ? <button type="button" onClick={() => void run(() => complete(payment.amountMinor, 0, undefined, 'upi'))}>Record UPI sale</button> :
                 <label><input type="checkbox" checked={fallback} onChange={(event) => setFallback(event.target.checked)} /> Accept cash instead. A delayed UPI payment may require a refund.</label>}
             </>}
             {(!payment || (fallback && payment.status !== 'paid')) && <>
-            <label><input type="checkbox" checked={discount} onChange={(event) => setDiscount(event.target.checked)} /> Apply owner-approved discount</label>
+            <button type="button" aria-expanded={discount} onClick={() => setDiscount(!discount)}>{discount ? 'Cancel discount' : 'Request discount'}</button>
             {discount && <>
               <p>Give the owner this sale ID to authorize the discount. <code>{operationId}</code></p>
+              <button type="button" onClick={() => void run(async () => {
+                await navigator.clipboard.writeText(operationId);
+                setNotice('Sale ID copied.');
+              })}>Copy sale ID</button>
               <label>Discount (minor units)<input name="discount" type="number" min="1" step="1" required /></label>
               <label>Owner approval code<input name="approval" required autoComplete="off" /></label>
             </>}
@@ -223,7 +248,7 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
       <button disabled={busy} onClick={() => void run(async () => { setState(await window.counter.syncCash()); setNotice('Sync checked.'); })}>
         Sync sales
       </button>
-      {state.receipts.length > 0 && <><h3>Saved receipts</h3><ul>{state.receipts.map((sale) => <li key={sale.operationId}>
+      {state.receipts.length > 0 && <><h3>Recent receipts</h3><ul>{state.receipts.map((sale) => <li key={sale.operationId}>
         {new Date(sale.occurredAt).toLocaleString()} · {money(cashSubtotal(sale.payload.lines) - sale.payload.discountMinor, sale.payload.currency)} · {sale.status}{' '}
         <button disabled={busy} onClick={() => void run(() => window.counter.printReceipt(sale.operationId))}>
           {sale.operationId === lastReceipt ? 'Print receipt' : 'Reprint receipt'}
