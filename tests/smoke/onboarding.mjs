@@ -178,6 +178,9 @@ export async function checkOnboarding(port, connectionString) {
       [merchantId, register.id]);
     const stale = (await call(queuePath, support, 200)).stale.find((item) => item.registerId === register.id);
     assert.equal(stale.merchantId, merchantId);
+    assert.equal((await call('devices/heartbeat-status', support, 200)).some(item => item.registerId === register.id), false);
+    await db.query("UPDATE register_health SET observed_at = now() - interval '16 minutes' WHERE merchant_id = $1 AND register_id = $2", [merchantId, register.id]);
+    assert.ok((await call('devices/heartbeat-status', support, 200)).some(item => item.registerId === register.id));
     assert.ok(stale.lastAcknowledgedAt);
     assert.equal(stale.pending, undefined);
     const incident = await call('platform/support/tickets', support, 201, { merchantId, registerId: register.id, reason: 'Counter stopped reporting' });

@@ -215,6 +215,11 @@ export function Checkout({ catalog, reloadCatalog }: { catalog?: CatalogSnapshot
     {error && <p role="alert">{error}</p>}
     {state && <>
       <p>{state.pending} pending · {state.rejected} need review</p>
+      <ul>{state.queue.map(entry => <li key={entry.id}>
+        {entry.id} · {entry.status} · {entry.attempts} sync attempts {entry.error}
+        {entry.status === 'rejected' && <button disabled={busy} onClick={() => void run(async () =>
+          setState(await window.counter.clearRejected(entry.id)))}>Clear reviewed rejection</button>}
+      </li>)}</ul>
       <button disabled={busy} onClick={() => void run(async () => { setState(await window.counter.syncCash()); setNotice('Sync checked.'); })}>
         Sync sales
       </button>

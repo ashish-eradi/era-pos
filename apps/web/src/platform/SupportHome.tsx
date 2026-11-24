@@ -55,6 +55,7 @@ function Incident({ ticket, token, operatorId, refresh }: {
 export function SupportHome() {
   const [token, setToken] = useState('');
   const [queue, setQueue] = useState<Queue>();
+  const [offline, setOffline] = useState<Queue['stale']>();
   async function refresh() { setQueue(await request<Queue>('platform/support/queue', token)); }
   return <section aria-labelledby="support-title">
     <h2 id="support-title">ERA support</h2>
@@ -64,7 +65,13 @@ export function SupportHome() {
       setToken(access);
       return '';
     }}><Field name="token" label="Support access token" type="password" /></Action> : <>
-      <button onClick={() => { setToken(''); setQueue(undefined); }}>Lock console</button>
+      <button onClick={() => { setToken(''); setQueue(undefined); setOffline(undefined); }}>Lock console</button>
+      <Action title="Check 15-minute heartbeat alerts" run={async () => {
+        const rows = await request<Queue['stale']>('devices/heartbeat-status', token);
+        setOffline(rows);
+        return rows.length ? `${rows.length} offline` : 'All registers reported recently';
+      }} />
+      {offline?.map(row => <p key={row.registerId}>{row.merchant} · {row.branch} · {row.register} · Last heartbeat {localTime(row.observedAt)}</p>)}
       <Action title="Refresh queue" run={async () => { await refresh(); return 'Queue updated'; }} />
       <h3>Stale registers</h3>
       {!queue.stale.length && <p>No stale registers.</p>}

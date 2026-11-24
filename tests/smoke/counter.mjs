@@ -251,6 +251,7 @@ async function main() {
     db.exec("INSERT INTO register_settings VALUES ('smoke-marker', 'persisted')");
     assert.equal(db.prepare('SELECT count(*) AS count FROM cash_receipts').get().count, 1);
     assert.equal(db.prepare('SELECT count(*) AS count FROM cash_outbox').get().count, 1);
+    assert.ok(db.prepare('SELECT attempts FROM cash_outbox').get().attempts >= 1);
     db.close();
     online = true;
     await launch();

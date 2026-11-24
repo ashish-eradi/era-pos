@@ -8,7 +8,11 @@ export async function request<T>(path: string, token: string, body?: object, met
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(typeof data.message === 'string' ? data.message : 'The request failed');
+  if (!response.ok) {
+    const id = response.headers.get('x-request-id');
+    const message = typeof data.message === 'string' ? data.message : 'The request failed';
+    throw new Error(id ? `${message} (request ${id})` : message);
+  }
   return data as T;
 }
 

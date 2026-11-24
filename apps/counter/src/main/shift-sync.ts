@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 
 export async function syncShiftCloses(database: DatabaseSync, deviceId: string, registerId: string, post: (path: string, body: object) => Promise<Response>) {
   const rows = database.prepare(`
-    SELECT s.*, (SELECT count(*) FROM cash_receipts r WHERE r.shift_id = s.id) AS receipt_count
+    SELECT s.*, (SELECT count(*) FROM cash_receipts r WHERE r.shift_id = s.id AND r.rejection_reason IS NULL) AS receipt_count
     FROM cash_shifts s WHERE s.register_id = ? AND s.closed_at IS NOT NULL AND s.synced_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM cash_outbox o JOIN cash_receipts r ON r.id = o.id WHERE r.shift_id = s.id)
     ORDER BY s.closed_at
