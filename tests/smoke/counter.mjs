@@ -191,7 +191,7 @@ async function launch(activate = false) {
                 window.checkoutStep = 2;
               }
               if (next === 2 && complete) {
-                complete.form.elements.tendered.value = '13000';
+                complete.form.elements.tendered.value = '130';
                 window.checkoutStep = 3;
                 complete.click();
               }
