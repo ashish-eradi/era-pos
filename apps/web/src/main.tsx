@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { MerchantHome } from './merchant/MerchantHome';
 import { PlatformHome } from './platform/PlatformHome';
 import { SupportHome } from './platform/SupportHome';
+import { ErrorBoundary } from '../../../packages/ui/ErrorBoundary';
 import './style.css';
 
 function App() {
@@ -24,4 +25,4 @@ function App() {
   </main></>;
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(<ErrorBoundary workspace="Merchant and operations workspace"><App /></ErrorBoundary>);

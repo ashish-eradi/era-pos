@@ -42,7 +42,7 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm run typecheck
-      - run: npm run smoke:api
+      - run: npm run test:integration
 
   counter:
     name: Windows counter smoke

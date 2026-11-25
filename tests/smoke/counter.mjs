@@ -188,7 +188,23 @@ async function launch(activate = false) {
                 quantity.focus();
                 quantity.value = '1';
                 quantity.blur();
-                window.checkoutStep = 2;
+                window.checkoutStep = 1.6;
+              }
+              if (next === 1.6 && button('Park sale')) {
+                button('Park sale').click();
+                window.checkoutStep = 1.7;
+              }
+              if (next === 1.7 && checkout.textContent.includes('Sale parked on this register.')) {
+                document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'F4',bubbles:true}));
+                window.checkoutStep = 1.8;
+              }
+              if (next === 1.8 && button('Register')?.getAttribute('aria-current') === 'page') {
+                document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'F1',bubbles:true}));
+                window.checkoutStep = 1.9;
+              }
+              if (next === 1.9 && button('Sell')?.getAttribute('aria-current') === 'page') {
+                const resume = [...checkout.querySelectorAll('button')].find(b => b.textContent.startsWith('Resume 1 lines'));
+                if (resume) { resume.click(); window.checkoutStep = 2; }
               }
               if (next === 2 && complete) {
                 complete.form.elements.tendered.value = '130';
@@ -266,6 +282,9 @@ async function main() {
     assert.equal(db.prepare('SELECT count(*) AS count FROM cash_receipts').get().count, 1);
     assert.equal(db.prepare('SELECT count(*) AS count FROM cash_outbox').get().count, 1);
     assert.ok(db.prepare('SELECT attempts FROM cash_outbox').get().attempts >= 1);
+    const lastFailure = db.prepare('SELECT attempted_at,error FROM cash_outbox').get();
+    assert.ok(Number.isFinite(Date.parse(lastFailure.attempted_at)));
+    assert.match(lastFailure.error,/503/);
     db.close();
     online = true;
     await launch();

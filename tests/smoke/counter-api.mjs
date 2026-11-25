@@ -12,7 +12,7 @@ counterRequire.cache[electron] = { exports: { safeStorage: {
 const { openCounterDatabase } = counterRequire('./dist/main/database');
 const { activate } = counterRequire('./dist/main/pairing');
 const { refreshCatalog } = counterRequire('./dist/main/catalog');
-const { startShift, commitCash, syncCash, closeShift } = counterRequire('./dist/main/cash');
+const { cashState, parkSale, resumeSale, startShift, commitCash, syncCash, closeShift } = counterRequire('./dist/main/cash');
 const { reportHeartbeat } = counterRequire('./dist/main/heartbeat');
 
 async function checkout() {
@@ -25,9 +25,19 @@ async function checkout() {
     const catalog = await refreshCatalog(db);
     const item = catalog.items[0];
     const { shift } = startShift(db,0);
-    const id = await commitCash(db,{ operationId: randomUUID(), shiftId: shift.id, catalogVersion: catalog.version,
-      lines: [{ sku: item.sku, quantity: 1 }], discountMinor: 0, tenderedMinor: item.priceMinor });
-    const synced = await syncCash(db);
+    const parkedId = randomUUID();
+    const draft = [{ sku:item.sku, quantity:1 }];
+    assert.equal(parkSale(db,parkedId,draft).parked[0].id,parkedId);
+    assert.deepEqual(resumeSale(db,parkedId),draft);
+    assert.throws(()=>parkSale(db,parkedId,[{sku:item.sku,quantity:0}]));
+    const id = await commitCash(db,{ operationId: parkedId, shiftId: shift.id, catalogVersion: catalog.version,
+      lines: resumeSale(db,parkedId), discountMinor: 0, tenderedMinor: item.priceMinor });
+    assert.deepEqual(cashState(db).parked,[]);
+    const beforeRetry = cashState(db).queue[0];
+    assert.equal(beforeRetry.attemptedAt,null);
+    assert.equal((await syncCash(db,randomUUID())).queue[0].attempts,0);
+    db.prepare("UPDATE cash_outbox SET status='rejected',error='register_forbidden' WHERE id=?").run(id);
+    const synced = await syncCash(db,id);
     assert.equal(synced.receipts.find(sale => sale.operationId === id).status,'synced');
     closeShift(db,item.priceMinor);
     assert.equal((await syncCash(db)).pending,0);

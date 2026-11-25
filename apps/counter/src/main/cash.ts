@@ -44,7 +44,7 @@ function atomic<T>(database: DatabaseSync, work: () => T): T {
 
 export function cashState(database: DatabaseSync): CashState {
   const identity = pairing(database);
-  if (!identity) return { receipts: [], queue: [], pending: 0, rejected: 0 };
+  if (!identity) return { receipts: [], queue: [], parked: [], pending: 0, rejected: 0 };
   const shift = openShift(database, identity.registerId);
   const receipts = database.prepare(`
     SELECT r.envelope, COALESCE(o.status, CASE WHEN r.rejection_reason IS NULL THEN 'synced' ELSE 'rejection reviewed' END) AS sync_status FROM cash_receipts r
@@ -60,9 +60,13 @@ export function cashState(database: DatabaseSync): CashState {
     WHERE r.register_id = ? GROUP BY status
   `).all(identity.registerId);
   return {
-    queue: database.prepare(`SELECT o.id,o.status,o.attempts,o.error FROM cash_outbox o
+    parked: database.prepare(`SELECT operation_id, parked_at, json_array_length(lines) AS items FROM parked_sales
+      WHERE register_id=? ORDER BY parked_at`).all(identity.registerId)
+      .map(row => ({ id:String(row.operation_id),parkedAt:String(row.parked_at),items:Number(row.items) })),
+    queue: database.prepare(`SELECT o.id,o.status,o.attempts,o.error,o.attempted_at FROM cash_outbox o
       JOIN cash_receipts r ON r.id=o.id WHERE r.register_id=? ORDER BY r.rowid`).all(identity.registerId)
-      .map(row => ({ id: String(row.id), status: String(row.status), attempts: Number(row.attempts), error: row.error && String(row.error) || '' })),
+      .map(row => ({ id: String(row.id), status: String(row.status), attempts: Number(row.attempts),
+        attemptedAt: row.attempted_at ? String(row.attempted_at) : null, error: row.error && String(row.error) || '' })),
     shift: shift && { id: shift.id, openedAt: shift.opened_at },
     receipts, upi: savedUpi(database), pending: Number(counts.find(({ status }) => status === 'pending')?.count ?? 0) + queuedShiftCloses(database,identity.registerId).count,
     rejected: Number(counts.find(({ status }) => status === 'rejected')?.count ?? 0),
@@ -76,6 +80,27 @@ export function startShift(database: DatabaseSync, amount: number, shiftId: stri
   database.prepare('INSERT INTO cash_shifts (id, register_id, opened_at, float_minor) VALUES (?, ?, ?, ?)')
     .run(shiftId, identity.registerId, new Date().toISOString(), amount);
   return cashState(database);
+}
+
+export function parkSale(db: DatabaseSync,id: string,lines: CashInput['lines']) {
+  const registerId = register(db).registerId;
+  if (!openShift(db,registerId) || savedUpi(db) || receipt(db,id)) throw new Error('Open an unpaid sale before parking');
+  const stock = new Map(cachedCatalog(db)?.items.map(item => [item.sku,item.onHand]));
+  if (!operationPattern.test(id) || !Array.isArray(lines) || !lines.length || lines.length>100 ||
+      lines.some(line => !line || !Number.isInteger(line.quantity) || line.quantity<1 ||
+        line.quantity>Math.min(1000,stock.get(line.sku) ?? 0)) || new Set(lines.map(line => line.sku)).size!==lines.length)
+    throw new Error('Review the cart before parking');
+  db.prepare('INSERT OR REPLACE INTO parked_sales(register_id,operation_id,lines,parked_at) VALUES (?,?,?,?)')
+    .run(registerId,id,JSON.stringify(lines.map(({sku,quantity})=>({sku,quantity}))),new Date().toISOString());
+  return cashState(db);
+}
+
+export function resumeSale(db: DatabaseSync,id: string): CashInput['lines'] {
+  const registerId = register(db).registerId;
+  if (!openShift(db,registerId) || savedUpi(db)) throw new Error('Resolve the current payment and open a shift first');
+  const row = db.prepare('SELECT lines FROM parked_sales WHERE register_id=? AND operation_id=?').get(registerId,id);
+  if (!row) throw new Error('Parked sale is unavailable');
+  return JSON.parse(String(row.lines));
 }
 
 export function clearRejected(database: DatabaseSync, id: string) {
@@ -162,6 +187,7 @@ export async function commitCash(database: DatabaseSync, input: CashInput): Prom
     database.prepare('INSERT INTO cash_receipts (id,register_id,shift_id,total_minor,envelope) VALUES (?, ?, ?, ?, ?)')
       .run(input.operationId, identity.registerId, shift.id, cashSubtotal(lines) - input.discountMinor, JSON.stringify(envelope));
     database.prepare('INSERT INTO cash_outbox (id) VALUES (?)').run(input.operationId);
+    database.prepare('DELETE FROM parked_sales WHERE register_id=? AND operation_id=?').run(identity.registerId,input.operationId);
     for (const line of lines) bySku.get(line.sku)!.onHand -= line.quantity;
     database.prepare("UPDATE register_settings SET value = ? WHERE key = 'catalog-snapshot'").run(JSON.stringify(catalog));
     if (upi) clearUpi(database);
@@ -169,16 +195,23 @@ export async function commitCash(database: DatabaseSync, input: CashInput): Prom
   });
 }
 
-export async function syncCash(database: DatabaseSync): Promise<CashState> {
+export async function syncCash(database: DatabaseSync, id?: string): Promise<CashState> {
   const identity = register(database);
   const entries = database.prepare(`
     SELECT r.id, r.envelope FROM cash_outbox o JOIN cash_receipts r ON r.id = o.id
-    WHERE r.register_id = ? AND o.status = 'pending' ORDER BY r.rowid
-  `).all(identity.registerId);
+    WHERE r.register_id = ? AND ((? IS NULL AND o.status = 'pending') OR o.id=?) ORDER BY r.rowid
+  `).all(identity.registerId,id ?? null,id ?? null);
   for (const row of entries) {
-    database.prepare('UPDATE cash_outbox SET attempts=attempts+1 WHERE id=?').run(String(row.id));
-    const result = await post(database, '/v1/devices/cash-sales', { deviceId: identity.deviceId, operation: JSON.parse(String(row.envelope)) });
-    if (!result.ok) throw new Error(`Sync unavailable. Saved sales remain queued (request ${result.headers.get('x-request-id') ?? 'unknown'})`);
+    database.prepare('UPDATE cash_outbox SET attempts=attempts+1,attempted_at=? WHERE id=?').run(new Date().toISOString(),String(row.id));
+    let result: Response;
+    try {
+      result = await post(database, '/v1/devices/cash-sales', { deviceId: identity.deviceId, operation: JSON.parse(String(row.envelope)) });
+      if (!result.ok) throw new Error(`HTTP ${result.status} (request ${result.headers.get('x-request-id') ?? 'unknown'})`);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Connection failed';
+      database.prepare('UPDATE cash_outbox SET error=? WHERE id=?').run(detail,String(row.id));
+      throw new Error(`Sync unavailable. Saved sales remain queued. ${detail}`);
+    }
     const acknowledgement = await result.json() as SyncAcknowledgementV1;
     if (acknowledgement.version !== 1 || acknowledgement.operationId !== row.id) throw new Error('Unexpected sync acknowledgement');
     if (acknowledgement.status === 'committed' || acknowledgement.status === 'replayed') {
@@ -189,7 +222,7 @@ export async function syncCash(database: DatabaseSync): Promise<CashState> {
       throw new Error('Sync unavailable. Saved sales remain queued');
     }
   }
-  await syncShiftCloses(database,identity.deviceId,identity.registerId,(path,body) => post(database,path,body));
+  if (!id) await syncShiftCloses(database,identity.deviceId,identity.registerId,(path,body) => post(database,path,body));
   return cashState(database);
 }
 

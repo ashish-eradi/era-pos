@@ -15,6 +15,7 @@ async function main() {
     if (path.startsWith('/v1/')) {
       const result = path.endsWith('invitations/accept') ? {merchantId:'demo',role:'owner',token:'test'} :
         path.endsWith('/branches') ? ['Central','West'].map(id=>({id,name:id,timezone:'UTC',catalogDefaults:[]})) :
+        path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map((sku,i)=>({sku,product:sku,barcode:'001'+i,priceMinor:500})) :
         path.endsWith('/daily-close') ? {currency:'INR',grossMinor:'12500',netMinor:'12500',date:'2026-11-24',
           provisional:false,sales:[{id:'receipt-1',register_id:'A',receipt:{currency:'INR',totalMinor:12500}}],
           registers:[{id:'A',name:'Till A',provisional:false}],returns:[],shifts:[],settlements:[],providerRefunds:[]} : [];
@@ -57,6 +58,11 @@ async function main() {
     await waitFor("document.body.innerText.includes('Load business day')");
     await run("document.querySelector('input[type=date]').form.requestSubmit()");
     await waitFor("document.body.innerText.includes('receipt-1')");
+    await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Catalog').click()");
+    await waitFor("document.querySelectorAll('.desk tbody tr').length===2");
+    await run("document.querySelector('input[type=search]').focus()");
+    win.webContents.sendInputEvent({type:'char',keyCode:'f'});
+    await waitFor("document.querySelectorAll('.desk tbody tr').length===1 && document.querySelector('.desk tbody').textContent.includes('COFFEE')");
     win.setContentSize(390,844);
     await waitFor("document.querySelector('.menu-trigger').offsetWidth > 0");
     await run("document.querySelector('.menu-trigger').click()");

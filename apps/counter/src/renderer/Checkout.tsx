@@ -10,6 +10,8 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const [state, setState] = useState<CashState>();
   const [cart, setCart] = useState<Record<string, number>>({});
   const searchInput = useRef<HTMLInputElement>(null);
+  const shiftForm = useRef<HTMLFormElement>(null);
+  const saleForm = useRef<HTMLFormElement>(null);
   const [query, setQuery] = useState('');
   const [operationId, setOperationId] = useState<string>(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
@@ -39,7 +41,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   }), []);
   useEffect(() => {
     if (!pending) return;
-    const reconnect = () => { void window.counter.syncCash().then(setState).catch(() => undefined); };
+    const reconnect = () => { void window.counter.syncCash().catch(() => window.counter.cashState()).then(setState).catch(() => undefined); };
     const timer = window.setInterval(reconnect, 15_000);
     window.addEventListener('online', reconnect);
     return () => { window.clearInterval(timer); window.removeEventListener('online', reconnect); };
@@ -51,6 +53,28 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     : `${amount} minor units`;
   const items = catalog?.items ?? [];
   const payment = state?.upi;
+  const lastAttempt = state?.queue.map(entry => entry.attemptedAt ?? '').sort().at(-1);
+  const pendingSales = state?.queue.filter(entry=>entry.status === 'pending').length ?? 0;
+  useEffect(() => {
+    const shortcuts = (event: KeyboardEvent) => {
+      if (busy || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+      const tabs = ['Sell','Receipts','Returns','Register'];
+      const tab = ['F1','F2','F3','F4'].indexOf(event.key);
+      if (tab >= 0) { event.preventDefault(); navigate(tabs[tab]); return; }
+      if (page !== 'Sell') return;
+      if (event.key === 'F5') { event.preventDefault(); searchInput.current?.focus(); }
+      if (event.key === 'F8' && !state?.shift) { event.preventDefault(); shiftForm.current?.requestSubmit(); }
+      if (event.key === 'F9' && !payment && !close && saleForm.current?.elements.namedItem('tendered')) {
+        event.preventDefault(); saleForm.current.requestSubmit();
+      }
+      if (event.key === 'F10' && state?.shift && !payment) {event.preventDefault(); showClose(true);}
+      if (event.key === 'Escape' && !payment && !close && Object.values(cart).some(Boolean) && window.confirm('Clear the current cart?')) {
+        setCart({}); setTender(''); setReduction(''); setDiscount(false); setOperationId(crypto.randomUUID());
+      }
+    };
+    window.addEventListener('keydown',shortcuts);
+    return () => window.removeEventListener('keydown',shortcuts);
+  },[page,navigate,busy,state?.shift,payment,close,cart]);
   const [seconds, setSeconds] = useState(10);
   useEffect(() => {
     if (payment?.status !== 'pending' || !payment.shortUrl || busy) return;
@@ -172,8 +196,11 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   return <section aria-labelledby="checkout-title">
     <header className="counter-heading"><h2 id="checkout-title">{page === 'Sell' ? 'Checkout' : page}</h2>
       <button onClick={() => navigate('Register')}>{state?.shift ? 'Shift open' : 'Shift closed'} · {pending} pending · {state?.rejected ?? 0} need review</button></header>
+    {pendingSales > 0 && <p className="queue-notice" role="status">{pendingSales} {pendingSales === 1 ? 'sale waiting' : 'sales waiting'} to sync.
+      {lastAttempt && ` Last attempt ${new Date(lastAttempt).toLocaleTimeString()}.`}</p>}
+    {!!state?.rejected && <p className="queue-rejected" role="alert">{state.rejected} sales rejected. Review them in Register.</p>}
     <div hidden={page !== 'Sell'}>
-    {!state?.shift ? <form onSubmit={(event) => count(event, false)}>
+    {!state?.shift ? <form ref={shiftForm} onSubmit={(event) => count(event, false)}>
       <label>Opening cash ({currency ?? "minor units"})<input name="amount" type="number" min="0" step={currency ? ".01" : "1"} required defaultValue="0" /></label>
       <button disabled={busy || !state}>Open shift</button>
     </form> : <>
@@ -201,9 +228,20 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         </li>)}</ul> : <p>{catalog ? 'No matching products.' : 'Download the catalog to check out.'}</p>}
         </div><aside className="basket"><h3>Current sale</h3>
         {!lines.length && <p className="empty-cart">Scan a barcode or choose a product to start a sale.</p>}
-        {lines.length > 0 && <form onSubmit={sell}>
+        {!lines.length && state.parked.map(draft => <button key={draft.id} disabled={busy || !!payment} onClick={() => void run(async () => {
+          const parked = await window.counter.resumeSale(draft.id);
+          if (parked.some(line=>!items.some(item=>item.sku === line.sku))) throw new Error('A parked product is missing from this catalog');
+          setCart(Object.fromEntries(parked.map(line=>[line.sku,line.quantity])));
+          setOperationId(draft.id); setNotice('Parked sale resumed at current catalog prices.');
+        })}>Resume {draft.items} lines · {new Date(draft.parkedAt).toLocaleTimeString()}</button>)}
+        {lines.length > 0 && <form ref={saleForm} onSubmit={sell}>
           <fieldset disabled={busy}>
             <legend>Cart and payment</legend>
+            <button type="button" disabled={!!payment || discount} onClick={() => void run(async () => {
+              setState(await window.counter.parkSale(operationId,lines));
+              setCart({}); setTender(''); setReduction(''); setQuery(''); setLastReceipt('');
+              setOperationId(crypto.randomUUID()); setNotice('Sale parked on this register.');
+            })}>Park sale</button>
             <ul>{lines.map((line) => <li key={line.sku}><b>{line.product}</b><small>{line.sku} · {money(line.unitMinor)} each · {money(line.unitMinor * line.quantity)}</small>
               <label>Quantity<input aria-label={`Quantity for ${line.product}`} type="number" min="1"
                 max={Math.min(1000, items.find(({ sku }) => sku === line.sku)!.onHand)}
@@ -260,7 +298,11 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     {state && <>
       <div className="panel" hidden={page !== "Register"}><h3>Sync queue</h3><p>{state.pending} pending · {state.rejected} need review</p>
       <ul>{state.queue.map(entry => <li key={entry.id}>
-        {entry.id} · {entry.status} · {entry.attempts} sync attempts {entry.error}
+        {entry.id} · {entry.status} · {entry.attempts} sync attempts {entry.attemptedAt && new Date(entry.attemptedAt).toLocaleString()} {entry.error}
+        <button disabled={busy} onClick={() => void run(async () => {
+          try { await window.counter.syncCash(entry.id); }
+          finally { setState(await window.counter.cashState()); }
+        })}>Retry now</button>
         {entry.status === 'rejected' && <button disabled={busy} onClick={() => void run(async () =>
           setState(await window.counter.clearRejected(entry.id)))}>Clear reviewed rejection</button>}
       </li>)}</ul>

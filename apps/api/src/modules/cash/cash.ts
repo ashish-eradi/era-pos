@@ -1,3 +1,4 @@
+import { parseInput, saleInput } from '../onboarding/device-input';
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Headers, Inject, NotFoundException, Param, Post,
@@ -60,7 +61,7 @@ export class CashController {
 
   @Post('devices/cash-sales')
   sale(@Body() input: unknown, @Headers('authorization') authorization?: string): Promise<SyncAcknowledgementV1> {
-    const data = record(input);
+    const data = parseInput(saleInput,input);
     const device = uuid(data.deviceId, 'device ID');
     const operation = record(data.operation);
     const operationId = uuid(operation.operationId, 'operation ID');

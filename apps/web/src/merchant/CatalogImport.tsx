@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Action, request } from '../onboarding';
 
 type Draft = {
@@ -11,24 +11,41 @@ export function CatalogImport({ path, token }: { path: string; token: string }) 
   const [items, setItems] = useState<Draft['rows']>([]);
   const [sort, setSort] = useState<'sku'|'product'|'priceMinor'>('sku');
   const [filter, setFilter] = useState('');
-  async function load(query = filter) { setItems(await request<Draft['rows']>(`${path}/items?${query}`, token)); }
+  const [search,setSearch] = useState('');
+  const [revision,refresh] = useState(0);
+  const [loading,setLoading] = useState(true);
+  const [failure,setFailure] = useState('');
+  useEffect(() => {
+    let active = true;
+    setLoading(true); setFailure('');
+    void request<Draft['rows']>(`${path}/items?${filter}`,token)
+      .then(rows => { if (active) setItems(rows); })
+      .catch(error => { if (active) { setItems([]); setFailure(String(error.message)); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active=false; };
+  },[path,token,filter,revision]);
+  const term = search.trim().toLowerCase();
+  const visible = items.filter(item => [item.product,item.sku,item.barcode].some(value => value.toLowerCase().includes(term)));
   const [preview, setPreview] = useState<{ csv: string; draft: Draft }>();
-  return <><Action title="Load catalog items" run={async form => {
+  return <><label>Search catalog<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Product, SKU or barcode" /></label>
+    <Action title="Apply attribute filter" run={async form => {
     const key = String(form.get('attribute')).trim();
     const value = String(form.get('value')).trim();
     if (!!key !== !!value) throw new Error('Enter both an attribute and a value');
     const query = key ? new URLSearchParams([[key,value]]).toString() : '';
-    await load(query); setFilter(query); return '';
+    setFilter(query); refresh(n=>n+1); return '';
   }}><label>Attribute<input name="attribute" placeholder="size" /></label>
     <label>Value<input name="value" placeholder="M" /></label></Action>
     <label>Sort items<select value={sort} onChange={e => setSort(e.target.value as typeof sort)}>
       <option value="sku">SKU</option><option value="product">Product</option><option value="priceMinor">Price</option>
     </select></label>
+    {failure && <p role="alert">{failure}</p>}
+    {loading ? <p role="status">Loading catalog…</p> : !failure && !visible.length && <p>No matching catalog items.</p>}
     <table><thead><tr><th>SKU</th><th>Barcode</th><th>Product and price</th></tr></thead>
-      <tbody>{[...items].sort((a,b) => sort === 'priceMinor' ? a.priceMinor-b.priceMinor : a[sort].localeCompare(b[sort])).map(item =>
+      <tbody>{visible.sort((a,b) => sort === 'priceMinor' ? a.priceMinor-b.priceMinor : a[sort].localeCompare(b[sort])).map(item =>
         <tr key={item.sku}><td>{item.sku}</td><td>{item.barcode}</td><td><Action key={JSON.stringify(item)} title="Save item" run={async form => {
           await request(`${path}/items`, token, { sku: item.sku, product: form.get('product'), priceMinor: Number(form.get('price')) });
-          await load(); return 'Saved';
+          refresh(n=>n+1); return 'Saved';
         }}><label>Product<input name="product" required maxLength={150} defaultValue={item.product} /></label>
           <label>Price (minor units)<input name="price" required type="number" min="0" max="1000000000" defaultValue={item.priceMinor} /></label>
         </Action></td></tr>)}</tbody></table><details>
@@ -56,6 +73,7 @@ export function CatalogImport({ path, token }: { path: string; token: string }) 
       <Action key={preview.draft.digest} title="Confirm and publish" run={async () => {
         const result = await request<{ version: string; replayed: boolean }>(`${path}/confirm`, token,
           { csv: preview.csv, digest: preview.draft.digest });
+        refresh(n=>n+1);
         return result.replayed ? `Already imported as version ${result.version}.` : `Version ${result.version} is available to paired counters.`;
       }} />
     </>)}
