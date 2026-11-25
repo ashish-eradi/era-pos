@@ -1,3 +1,4 @@
+import { activationInput, invitationInput, pairingInput, parseInput } from './device-input';
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException, Body, ConflictException, Controller, Get, Headers, Inject, NotFoundException, Param, Post,
@@ -44,7 +45,7 @@ export class OnboardingController {
 
   @Post('invitations/accept')
   accept(@Body() input: unknown) {
-    const hash = codeDigest(record(input).code);
+    const hash = codeDigest(parseInput(invitationInput,input).code);
     return transaction(this.database, async (client) => {
       const target = await client.query<{ merchant_id: string; role: string }>('SELECT merchant_id, role FROM invitations WHERE digest = $1', [hash]);
       if (target.rows[0]?.role === 'owner') {
@@ -121,7 +122,7 @@ export class OnboardingController {
 
   @Post('devices/activate')
   activate(@Body() input: unknown) {
-    const data = record(input);
+    const data = parseInput(activationInput,input);
     const hash = codeDigest(data.code);
     const deviceId = uuid(data.deviceId, 'device ID');
     const pairingDigest = codeDigest(data.pairingProof);
@@ -162,7 +163,7 @@ export class OnboardingController {
 
   @Post('devices/pairing')
   async recover(@Body() input: unknown) {
-    const data = record(input);
+    const data = parseInput(pairingInput,input);
     const deviceId = uuid(data.deviceId, 'device ID');
     const { rows } = await this.database.query(`
       SELECT merchant_id AS "merchantId", branch_id AS "branchId", id AS "registerId", device_id AS "deviceId"

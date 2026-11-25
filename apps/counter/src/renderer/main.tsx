@@ -5,6 +5,7 @@ import type { FormEvent } from 'react';
 import type { CatalogSnapshotV1 } from '@era/contracts';
 import { Maintenance } from './Maintenance';
 import { Checkout } from './Checkout';
+import { ErrorBoundary } from '../../../../packages/ui/ErrorBoundary';
 import './style.css';
 
 declare global {
@@ -98,4 +99,4 @@ function Counter() {
   </main></>;
 }
 
-createRoot(document.getElementById('root')!).render(<Counter />);
+createRoot(document.getElementById('root')!).render(<ErrorBoundary workspace="Counter"><Counter /></ErrorBoundary>);

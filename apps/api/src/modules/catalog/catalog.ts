@@ -1,3 +1,4 @@
+import { deviceInput, parseInput } from '../onboarding/device-input';
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException, Body, ConflictException, Controller, Get, Headers, Inject, NotFoundException, Param, Post, Query, UnauthorizedException,
@@ -136,7 +137,7 @@ export class CatalogController {
 
   @Post('devices/catalog')
   async catalog(@Body() input: unknown, @Headers('authorization') authorization?: string) {
-    const deviceId = uuid(record(input).deviceId, 'device ID');
+    const deviceId = uuid(parseInput(deviceInput,input).deviceId, 'device ID');
     const { rows } = await this.database.query(`
       SELECT r.merchant_id AS "merchantId", r.branch_id AS "branchId", r.id AS "registerId",
         CASE m.country_code WHEN 'IN' THEN 'INR' ELSE 'USD' END AS currency,

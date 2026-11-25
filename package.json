@@ -18,15 +18,18 @@
     "dev:web": "npm run dev -w @era/web",
     "package:counter": "npm run build -w @era/contracts && npm run build -w @era/counter && node apps/counter/package-windows.mjs",
     "start:counter": "npm run start -w @era/counter",
+    "test:integration": "vitest run tests/integration",
     "smoke:api": "node --env-file-if-exists=.env tests/smoke/api.mjs",
     "smoke:counter": "node tests/smoke/counter.mjs",
     "smoke:web": "electron tests/smoke/web-ui.mjs"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
-    "eslint": "9.39.1",
     "@eslint/js": "9.39.1",
+    "@vitest/coverage-v8": "^3.2.6",
+    "eslint": "9.39.1",
     "globals": "16.5.0",
-    "typescript-eslint": "8.48.0"
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.48.0",
+    "vitest": "^3.2.6"
   }
 }
