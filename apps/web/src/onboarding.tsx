@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 
+export class ApiError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
 export async function request<T>(path: string, token: string, body?: object, method = body ? 'POST' : 'GET'): Promise<T> {
   const response = await fetch(`/v1/${path}`, {
     method, cache: 'no-store',
@@ -11,7 +15,7 @@ export async function request<T>(path: string, token: string, body?: object, met
   if (!response.ok) {
     const id = response.headers.get('x-request-id');
     const message = typeof data.message === 'string' ? data.message : 'The request failed';
-    throw new Error(id ? `${message} (request ${id})` : message);
+    throw new ApiError(response.status,id ? `${message} (request ${id})` : message);
   }
   return data as T;
 }

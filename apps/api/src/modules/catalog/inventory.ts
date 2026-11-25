@@ -18,12 +18,12 @@ async function inventory(client: PoolClient, scope: Scope, skus: string[] | null
     if (locked.rowCount !== skus.length) throw new NotFoundException('At least one SKU was not found in the branch');
   }
   const { rows } = await client.query<{ sku: string; product: string; "onHand": number; damaged: number; movements: string }>(`
-    SELECT c.sku,c.product,COALESCE(sum(m.quantity) FILTER (WHERE m.kind <> 'return_damaged'),0)::float8 AS "onHand",
+    SELECT c.sku,c.product,c.alert_threshold AS threshold,COALESCE(sum(m.quantity) FILTER (WHERE m.kind <> 'return_damaged'),0)::float8 AS "onHand",
       COALESCE(sum(m.quantity) FILTER (WHERE m.kind = 'return_damaged'),0)::float8 AS damaged,
       count(m.id) FILTER (WHERE m.kind <> 'return_damaged') AS movements
     FROM branch_catalog c LEFT JOIN stock_movements m USING (merchant_id,branch_id,sku)
     WHERE c.merchant_id = $1 AND c.branch_id = $2 AND ($3::text[] IS NULL OR c.sku = ANY($3))
-    GROUP BY c.sku,c.product ORDER BY c.sku
+    GROUP BY c.sku,c.product,c.alert_threshold ORDER BY c.sku
   `, [...scope,skus]);
   return rows;
 }
@@ -51,6 +51,35 @@ export class InventoryController {
         WHERE merchant_id = $1 AND branch_id = $2 ORDER BY (approved_at IS NULL) DESC,created_at DESC LIMIT 100
       `, [merchant,branch]);
       return { items, documents: rows };
+    });
+  }
+
+  @Get('alerts')
+  alerts(@Param('merchantId') merchant: string, @Param('branchId') branch: string, @Headers('authorization') auth?: string) {
+    return transaction(this.database, async client => {
+      await branchActor(client,merchant,branch,operators,auth);
+      return (await client.query(`
+        SELECT c.sku,c.product,c.alert_threshold AS threshold,coalesce(sum(m.quantity),0)::float8 AS "onHand"
+        FROM branch_catalog c LEFT JOIN stock_movements m ON (m.merchant_id,m.branch_id,m.sku)=(c.merchant_id,c.branch_id,c.sku)
+          AND m.kind <> 'return_damaged'
+        WHERE c.merchant_id=$1 AND c.branch_id=$2 AND c.alert_threshold IS NOT NULL GROUP BY c.sku,c.product,c.alert_threshold
+        HAVING coalesce(sum(m.quantity),0)<=c.alert_threshold ORDER BY coalesce(sum(m.quantity),0)-c.alert_threshold,c.sku
+      `,[merchant,branch])).rows;
+    });
+  }
+
+  @Post('threshold')
+  threshold(@Param('merchantId') merchant: string, @Param('branchId') branch: string, @Body() input: unknown,
+    @Headers('authorization') auth?: string) {
+    const { sku, threshold } = record(input);
+    if (threshold !== null && (typeof threshold !== 'number' || !Number.isInteger(threshold) || threshold < 0 || threshold > 1000000000))
+      throw new BadRequestException('Enter a whole-number threshold or leave it blank');
+    return transaction(this.database, async client => {
+      await branchActor(client,merchant,branch,operators,auth);
+      const result = await client.query('UPDATE branch_catalog SET alert_threshold=$4 WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',
+        [merchant,branch,text(sku,'SKU',80),threshold]);
+      if (!result.rowCount) throw new NotFoundException();
+      return { threshold };
     });
   }
 

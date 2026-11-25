@@ -74,7 +74,7 @@ Apply migrations and start the API, then run `npm.cmd run create-operator -w @er
 
 Open the merchant workspace in a separate tab. Accept the invitation, invite staff to a specific branch or reserve a register and generate an activation code. Enter that code in the Windows counter within 10 minutes. Restart the counter to verify pairing persists. If the activation response is interrupted, retry on the same counter to recover the completed pairing. Refresh the operations console to see owner acceptance and paired register counts.
 
-The dev web server proxies API requests to port 3001. Deploy the built web app with a same-origin HTTPS reverse proxy for `/v1`. The counter defaults to the local API. For a remote API, set `ERA_API_ORIGIN` in the counter process environment to its HTTPS origin. Device authentication for sales sync and replacement recovery are future work. Browser sessions stay in memory. After a reload or expiration, use a fresh invitation for the same role and address.
+The dev web server proxies API requests to port 3001. Deploy the built web app with a same-origin HTTPS reverse proxy for `/v1`. The counter defaults to the local API. For a remote API, set `ERA_API_ORIGIN` in the counter process environment to its HTTPS origin. Device authentication for sales sync and replacement recovery are future work. The merchant workspace restores its local session after a reload. End local session clears it from this browser. After expiration, use a fresh invitation for the same role and address.
 
 ## Publish a branch catalog
 

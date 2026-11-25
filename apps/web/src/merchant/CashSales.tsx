@@ -1,6 +1,5 @@
-import { useState } from 'react';
 import type { CashReceiptV1 } from '@era/contracts';
-import { Action, request } from '../onboarding';
+import { useMerchantData } from './useMerchantData';
 
 type Sale = {
   id: string;
@@ -10,13 +9,10 @@ type Sale = {
 };
 
 export function CashSales({ path, token }: { path: string; token: string }) {
-  const [sales, setSales] = useState<Sale[]>();
-  return <details>
+  const {data:sales,error} = useMerchantData<Sale[]>(path,token,0,30000);
+  return <details open>
     <summary>Register sales</summary>
-    <Action title="Load recent sales" run={async () => {
-      setSales(await request<Sale[]>(`${path}/cash-sales`, token));
-      return '';
-    }} />
+    {error ? <p role="alert">{error}</p> : !sales && <p role="status">Loading recent sales…</p>}
     {sales?.length === 0 && <p>No synced sales.</p>}
     {sales?.map((sale) => {
       const money = (amount: number) => new Intl.NumberFormat(undefined, {
