@@ -149,10 +149,11 @@ export class ClosesController {
         FROM registers r LEFT JOIN register_health h ON (h.merchant_id,h.register_id) = (r.merchant_id,r.id)
         WHERE r.merchant_id = $1 AND r.branch_id = $2 AND r.status = 'active' ORDER BY r.name,r.id
       `, [merchant,branch]);
+      const { rows: [store] } = await client.query('SELECT country_code FROM merchants WHERE id=$1',[merchant]);
       const grossMinor = sales.rows.reduce((total, row) => total + BigInt(row.receipt.totalMinor), 0n);
       const returnNet = returns.rows.reduce((total, row) => total + BigInt(row.receipt.differenceMinor), 0n);
       return {
-        date: day, provisional: health.rows.some((row) => row.provisional),
+        currency: store.country_code === 'IN' ? 'INR' : 'USD', date: day, provisional: health.rows.some((row) => row.provisional),
         grossMinor: grossMinor.toString(), netMinor: (grossMinor + returnNet).toString(),
         registers: health.rows, sales: sales.rows, returns: returns.rows, shifts: shifts.rows, settlements: settlements.rows, providerRefunds: providerRefunds.rows,
       };

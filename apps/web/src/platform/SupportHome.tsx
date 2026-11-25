@@ -71,7 +71,7 @@ export function SupportHome() {
     return () => { active = false; window.clearInterval(timer); };
   }, [token]);
   async function refresh() { setQueue(await request<Queue>('platform/support/queue', token)); }
-  return <section aria-labelledby="support-title">
+  return <section className="console" aria-labelledby="support-title">
     <h2 id="support-title">ERA support</h2>
     {!queue ? <Action title="Open support console" run={async (form) => {
       const access = values(form).token.trim();
@@ -80,6 +80,9 @@ export function SupportHome() {
       return '';
     }}><Field name="token" label="Support access token" type="password" /></Action> : <>
       <button onClick={() => { setToken(''); setQueue(undefined); setOffline(undefined); }}>Lock console</button>
+      <div className="metric-grid"><div className="metric">Open incidents<strong>{queue.tickets.filter(t=>!t.resolvedAt).length}</strong></div>
+        <div className="metric">Stale registers<strong>{queue.stale.length}</strong></div>
+        <div className="metric">Offline over 15 minutes<strong>{offline?.length ?? '…'}</strong></div></div>
       <Action title="Check 15-minute heartbeat alerts" run={async () => {
         const rows = await request<Queue['stale']>('devices/heartbeat-status', token);
         setOffline(rows);

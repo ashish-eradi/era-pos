@@ -1,6 +1,6 @@
 import { Returns } from './Returns';
 import { QRCodeSVG } from 'qrcode.react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { cashSubtotal } from '@era/contracts';
 import type { CatalogSnapshotV1 } from '@era/contracts';
@@ -9,6 +9,7 @@ import type { CashState } from '../bridge';
 export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: string; navigate: (page: string) => void; catalog?: CatalogSnapshotV1; reloadCatalog: () => Promise<void> }) {
   const [state, setState] = useState<CashState>();
   const [cart, setCart] = useState<Record<string, number>>({});
+  const searchInput = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [operationId, setOperationId] = useState<string>(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
@@ -118,7 +119,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
 
   function count(event: FormEvent<HTMLFormElement>, closing: boolean) {
     event.preventDefault();
-    const amount = Number(new FormData(event.currentTarget).get('amount'));
+    const amount = Math.round(Number(new FormData(event.currentTarget).get('amount')) * (currency ? 100 : 1));
     void run(async () => {
       if (!closing) setState(await window.counter.openShift(amount));
       else {
@@ -173,21 +174,24 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       <button onClick={() => navigate('Register')}>{state?.shift ? 'Shift open' : 'Shift closed'} · {pending} pending · {state?.rejected ?? 0} need review</button></header>
     <div hidden={page !== 'Sell'}>
     {!state?.shift ? <form onSubmit={(event) => count(event, false)}>
-      <label>Opening cash (minor units)<input name="amount" type="number" min="0" step="1" required defaultValue="0" /></label>
+      <label>Opening cash ({currency ?? "minor units"})<input name="amount" type="number" min="0" step={currency ? ".01" : "1"} required defaultValue="0" /></label>
       <button disabled={busy || !state}>Open shift</button>
     </form> : <>
       <p>Shift opened {new Date(state.shift.openedAt).toLocaleString()}</p>
       <button type="button" disabled={busy || !!payment} onClick={() => showClose(!close)}>{close ? 'Back to checkout' : 'Close shift'}</button>
       {close ? <form onSubmit={(event) => count(event, true)}>
-        <label>Counted cash (minor units)<input name="amount" type="number" min="0" step="1" required /></label>
+        <label>Counted cash ({currency ?? "minor units"})<input name="amount" type="number" min="0" step={currency ? ".01" : "1"} required /></label>
         <button disabled={busy}>Submit blind count</button>
       </form> : <div className="sell-grid"><div className="panel catalog-pane"><h3>Product catalog</h3>
         <form onSubmit={(event) => {
           event.preventDefault();
           const match = items.find((item) => item.barcode === query.trim());
-          if (!busy && !payment && match?.onHand) { add(match.sku); setQuery(''); }
+          if (busy || payment) return;
+          if (!match) {setError('Barcode not found in this catalog'); return;}
+          if ((cart[match.sku] ?? 0) >= Math.min(1000,match.onHand)) {setError('Available quantity reached'); return;}
+          setError(''); add(match.sku); setQuery('');
         }}>
-          <label>Search products or scan a barcode<input value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+          <label>Search products or scan a barcode<input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         </form>
         {matches.length ? <ul className="product-list">{matches.map((item) => <li key={item.sku}>
           <button type="button" disabled={busy || !!payment || (cart[item.sku] ?? 0) >= Math.min(1000, item.onHand)} onClick={() => add(item.sku)}>Add {item.product}</button>
@@ -264,7 +268,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         Sync sales
       </button>
       </div>
-      {page === 'Sell' && lastReceipt && <button onClick={() => void run(() => window.counter.printReceipt(lastReceipt))}>Print receipt</button>}
+      {page === 'Sell' && lastReceipt && <><button onClick={() => void run(() => window.counter.printReceipt(lastReceipt))}>Print receipt</button><button onClick={() => {setLastReceipt('');setNotice('');searchInput.current?.focus();}}>Next sale</button></>}
       <div className="panel" hidden={page !== 'Receipts'}>
       {!state.receipts.length && <p>No saved receipts yet.</p>}
       {state.receipts.length > 0 && <><h3>Recent receipts</h3><ul>{state.receipts.map((sale) => <li key={sale.operationId}>

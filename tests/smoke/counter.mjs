@@ -221,10 +221,11 @@ async function launch(activate = false) {
             } else if (next === 7 && button('Submit blind count')) {
               const submit = button('Submit blind count');
               if (checkout.textContent.includes('Expected')) throw new Error('Expected cash visible before blind count');
-              submit.form.elements.amount.value = '12900';
+              submit.form.elements.amount.value = '129';
               window.checkoutStep = 8;
               submit.click();
             }
+            if (next === 8 && checkout.textContent.includes('Shift closed. Expected')) button('Register').click();
             if (next === 8 && checkout.textContent.includes('Shift closed. Expected') && sync) {
               window.checkoutStep = 9;
               sync.click();

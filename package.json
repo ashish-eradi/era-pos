@@ -19,7 +19,8 @@
     "package:counter": "npm run build -w @era/contracts && npm run build -w @era/counter && node apps/counter/package-windows.mjs",
     "start:counter": "npm run start -w @era/counter",
     "smoke:api": "node --env-file-if-exists=.env tests/smoke/api.mjs",
-    "smoke:counter": "node tests/smoke/counter.mjs"
+    "smoke:counter": "node tests/smoke/counter.mjs",
+    "smoke:web": "electron tests/smoke/web-ui.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3",

@@ -18,6 +18,8 @@ function StoreType({ initial = 'mixed' }: { initial?: string }) {
 }
 
 export function PlatformHome() {
+  const [page,setPage] = useState('Merchant directory');
+  const [search,setSearch] = useState('');
   const [token, setToken] = useState('');
   const [billing, setBilling] = useState<BillingAccess>();
   const [trials, setTrials] = useState<Trial[]>([]);
@@ -25,22 +27,25 @@ export function PlatformHome() {
   async function refresh(access: string) {
     setTrials(await request<Trial[]>('platform/trials', access));
   }
-  return <section aria-labelledby="platform-title">
+  return <section className="console" aria-labelledby="platform-title">
     <h2 id="platform-title">ERA operations</h2>
     {!token ? <Action title="Open operations console" run={async (form) => {
       const access = values(form).token.trim();
       const permissions = await request<BillingAccess>('platform/billing',access);
       if (permissions.role === 'admin') await refresh(access);
+      setPage(permissions.role === 'finance' ? 'Billing' : 'Merchant directory');
       setBilling(permissions);
       setToken(access);
       return '';
     }}><Field name="token" label="Operator access token" type="password" /></Action> : <>
       <button onClick={() => { setToken(''); setTrials([]); setBilling(undefined); }}>Lock console</button>
-      {billing && <BillingConsole token={token} access={billing} refresh={async () => {
+      <nav className="tabs" aria-label="Operations sections">{(billing?.role === 'admin' ? ['Merchant directory','New trial','Billing and offboarding'] : ['Billing']).map(name =>
+        <button key={name} aria-current={name === page ? 'page' : undefined} onClick={()=>setPage(name)}>{name}</button>)}</nav>
+      {billing && page.startsWith('Billing') && <BillingConsole token={token} access={billing} refresh={async () => {
         setBilling(await request<BillingAccess>('platform/billing',token));
       }} />}
       {billing?.role === 'admin' && <>
-      <Action title="Create trial" run={async (form) => {
+      {page === "New trial" && <Action title="Create trial" run={async (form) => {
         const data = values(form);
         const details = JSON.stringify(data);
         if (retry.current?.details !== details) retry.current = { details, id: crypto.randomUUID() };
@@ -48,7 +53,7 @@ export function PlatformHome() {
           ...data, requestId: retry.current.id, branchLimit: Number(data.branchLimit), registerLimit: Number(data.registerLimit),
         });
         await refresh(token);
-        return 'Trial saved';
+        setPage('Merchant directory'); return 'Trial saved';
       }}>
         <Field name="name" label="Display name" /><Field name="legalName" label="Legal name" />
         <Field name="email" label="Owner email" type="email" />
@@ -56,12 +61,14 @@ export function PlatformHome() {
         <Field name="plan" label="Plan code" initial="pilot" />
         <Field name="branchLimit" label="Branch allowance" type="number" initial="1" />
         <Field name="registerLimit" label="Register allowance" type="number" initial="1" />
-      </Action>
+      </Action>}
+      {page === "Merchant directory" && <><h3>Merchant directory</h3><label>Find merchant<input type="search" value={search} onChange={e=>setSearch(e.target.value)} /></label>
       <Action title="Refresh trials" run={async () => { await refresh(token); return 'Trials updated'; }} />
-      {trials.map((trial) => {
+      {trials.filter(t=>[t.name,t.merchantId,t.ownerEmail].some(v=>v.toLowerCase().includes(search.trim().toLowerCase()))).map((trial) => {
         const path = `platform/trials/${trial.merchantId}`;
         return <details key={trial.merchantId}>
           <summary>{trial.name} · {trial.country} · {trial.ownerAccepted ? 'Owner joined' : 'Waiting for owner'}</summary>
+          <p>Merchant ID <code>{trial.merchantId}</code></p><p>{!trial.ownerAccepted ? "Next step: issue the owner invitation" : !trial.branches.length ? "Next step: create a branch" : !trial.pairedRegisters ? "Next step: pair a register" : "Onboarding complete"}</p>
           <p>{trial.plan} plan · {trial.branches.length}/{trial.branchLimit} branches · {trial.pairedRegisters}/{trial.registerLimit} registers paired</p>
           <Action title="Issue owner invitation" run={async () => {
             const { code } = await request<{ code: string }>(`${path}/owner-invitation`, token, {});
@@ -82,7 +89,7 @@ export function PlatformHome() {
             return 'Store type saved';
           }}><StoreType initial={branch.storeType} /></Action>)}
         </details>;
-      })}
+      })}</>}
       </>}
     </>}
   </section>;
