@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { cashAmount, cashSubtotal, isCashReceiptV1 } from '@era/contracts';
+import { cashAmount, catalogLine, saleTotals, isCashReceiptV1 } from '@era/contracts';
 import type { CashReceiptV1, SyncAcknowledgementV1, SyncRequestV1 } from '@era/contracts';
 import type { CashInput, CashState } from '../bridge';
 import { cachedCatalog } from './catalog';
@@ -170,23 +170,34 @@ export async function commitCash(database: DatabaseSync, input: CashInput): Prom
     const lines = input.lines.map(({ sku, quantity }) => {
       const item = bySku.get(sku);
       if (!item || !Number.isInteger(quantity) || quantity < 1 || quantity > item.onHand) throw new Error('Check the requested stock quantities');
-      return { sku, product: item.product, quantity, unitMinor: item.priceMinor };
+      return catalogLine(item,quantity,catalog);
     });
+    let invoiceNumber: string|undefined;
+    if (lines.some(line=>line.gst)) {
+      if (lines.some(line=>line.gst && !/^(?:\d{4}|\d{6}|\d{8})$/.test(line.gst.hsn))) throw new Error('Set an HSN on each taxable product and download the catalog');
+      if (!catalog.invoiceSeries) throw new Error('Download a fresh catalog for GST invoicing');
+      const key = 'invoice-sequence-'+identity.registerId;
+      const next = database.prepare("INSERT INTO register_settings (key,value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1 RETURNING value").get(key);
+      invoiceNumber = catalog.invoiceSeries+'-'+String(next?.value);
+      if (invoiceNumber.length>16) throw new Error('Invoice series exhausted');
+    }
     const payload: CashReceiptV1 = {
       kind: 'cash_sale', shiftId: shift.id, currency: catalog.currency, lines,
+      brand:catalog.brand, invoiceNumber,buyer:invoiceNumber ? upi?.buyer ?? input.buyer : undefined,placeOfSupply:invoiceNumber ? upi?.placeOfSupply ?? input.placeOfSupply ?? catalog.receiptGstin?.slice(0,2) : undefined,
       merchantName: catalog.merchantName, receiptAddress: catalog.receiptAddress, receiptGstin: catalog.receiptGstin,
       discountMinor: input.discountMinor, tenderedMinor: input.tenderedMinor,
       ...(input.discountMinor && { approval: input.approval }),
       ...(input.tender === 'upi' && { tender: 'upi' as const }),
     };
     if (!isCashReceiptV1(payload)) throw new Error('Check item quantities, discount and cash tendered');
-    if (input.tender === 'upi' && upi?.amountMinor !== cashSubtotal(lines)) throw new Error('UPI amount does not match the cart');
+    const {total} = saleTotals(lines,input.discountMinor);
+    if (input.tender === 'upi' && upi?.amountMinor !== total) throw new Error('UPI amount does not match the cart');
     const envelope: Envelope = {
       version: 1, merchantId: identity.merchantId, branchId: identity.branchId, registerId: identity.registerId,
       operationId: input.operationId, occurredAt: new Date().toISOString(), payload,
     };
     database.prepare('INSERT INTO cash_receipts (id,register_id,shift_id,total_minor,envelope) VALUES (?, ?, ?, ?, ?)')
-      .run(input.operationId, identity.registerId, shift.id, cashSubtotal(lines) - input.discountMinor, JSON.stringify(envelope));
+      .run(input.operationId, identity.registerId, shift.id, total, JSON.stringify(envelope));
     database.prepare('INSERT INTO cash_outbox (id) VALUES (?)').run(input.operationId);
     database.prepare('DELETE FROM parked_sales WHERE register_id=? AND operation_id=?').run(identity.registerId,input.operationId);
     for (const line of lines) bySku.get(line.sku)!.onHand -= line.quantity;

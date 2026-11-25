@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Body, ConflictException, Controller, Get, Headers, Inject, NotFoundException, Param, Post } from '@nestjs/common';
-import { cashAmount, cashSubtotal } from '@era/contracts';
+import { cashAmount, saleTotals } from '@era/contracts';
 import type { CashLineV1, CashReceiptV1, ReturnReceipt, ReturnSelection } from '@era/contracts';
 import type { Pool, PoolClient } from 'pg';
 import { branchActor, deviceScope } from '../merchant/branch-access';
@@ -42,23 +42,17 @@ function portion(amount: number, position: number, total: number) {
 }
 
 function credits(original: Original, selections: ReturnSelection[], used: Map<string, number>) {
-  const subtotal = cashSubtotal(original.lines);
-  let cumulative = 0;
-  const snapshots = new Map(original.lines.map((line) => {
-    const previous = cumulative;
-    cumulative += line.quantity * line.unitMinor;
-    return [line.sku, { ...line, discount: portion(original.discountMinor,cumulative,subtotal) -
-      portion(original.discountMinor,previous,subtotal) }];
-  }));
+  const {breakdown} = saleTotals(original.lines,original.discountMinor);
+  const snapshots = new Map(original.lines.map((line,i)=>[line.sku,{...line,...breakdown[i]}]));
   return selections.map(({ sku, quantity, disposition }) => {
     const line = snapshots.get(sku);
     const prior = used.get(sku) ?? 0;
     if (!line || prior + quantity > line.quantity) throw new ConflictException(`Return exceeds remaining quantity for ${sku}`);
     const split = (amount: number) => portion(amount, prior + quantity, line.quantity) - portion(amount, prior, line.quantity);
     const discountMinor = split(line.discount);
-    const taxMinor = split(line.taxMinor ?? 0);
+    const taxMinor = split(line.tax);
     return { sku, product: line.product, unitMinor: line.unitMinor, quantity, disposition, discountMinor, taxMinor,
-      creditMinor: line.unitMinor * quantity - discountMinor };
+      creditMinor: line.gst ? split(line.payable) : line.unitMinor * quantity - discountMinor };
   });
 }
 
@@ -130,15 +124,20 @@ export class ReturnsController {
       let replacement: CashLineV1 | undefined;
       if (data.replacement !== undefined) {
         const item = selection(data.replacement);
-        const { rows } = await client.query<{ product: string; price_minor: number }>(`
-          SELECT product,price_minor FROM branch_catalog WHERE merchant_id = $1 AND branch_id = $2 AND sku = $3
+        const { rows } = await client.query<{ product: string; price_minor: number;rate:number|null;inclusive:boolean;hsn:string|null }>(`
+          SELECT c.product,c.price_minor,(m.gst_rates->>c.category)::float8 AS rate,m.gst_inclusive AS inclusive,c.hsn
+          FROM branch_catalog c JOIN merchants m ON m.id=c.merchant_id WHERE c.merchant_id = $1 AND c.branch_id = $2 AND c.sku = $3
         `, [merchant,branch,item.sku]);
         if (!rows[0]) throw new NotFoundException('Replacement SKU is missing from this branch');
         replacement = { ...item, product: rows[0].product, unitMinor: rows[0].price_minor };
-        if (!cashAmount(replacement.quantity * replacement.unitMinor)) throw new BadRequestException('Replacement total is too large');
+        if (rows[0].rate != null) {
+          if (!rows[0].hsn) throw new BadRequestException('Configure an HSN for the replacement SKU');
+          replacement.gst={rate:rows[0].rate,inclusive:rows[0].inclusive,hsn:rows[0].hsn};
+        }
+        if (!cashAmount(saleTotals([replacement],0).total)) throw new BadRequestException('Replacement total is too large');
       }
       const creditMinor = lines.reduce((sum,line) => sum + line.creditMinor, 0);
-      const differenceMinor = (replacement ? replacement.quantity * replacement.unitMinor : 0) - creditMinor;
+      const differenceMinor = (replacement ? saleTotals([replacement],0).total : 0) - creditMinor;
       const receipt: ReturnReceipt = { id, saleId, reason, currency: source.receipt.currency, lines, replacement, creditMinor, differenceMinor,
         tender: differenceMinor < 0 ? source.receipt.tender ?? 'cash' : 'cash', status: 'requested' };
       const created = await client.query(`

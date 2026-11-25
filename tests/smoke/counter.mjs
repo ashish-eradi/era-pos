@@ -53,6 +53,8 @@ const server = createServer(async (request, response) => {
   if (request.url === '/v1/devices/cash-sales') {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
+    assert.equal(input.operation.payload.placeOfSupply,'27');
+    assert.equal(input.operation.payload.invoiceNumber,input.operation.payload.tender==='upi'?'42-2':'42-1');
     if (input.operation.payload.tender === 'upi') {
       assert.equal(input.operation.operationId, upiOperation);
       assert.equal(input.operation.payload.tenderedMinor, 12900);
@@ -100,7 +102,8 @@ const server = createServer(async (request, response) => {
     response.writeHead(201, { 'content-type': 'application/json' });
     response.end(JSON.stringify({
       merchantId: 'fixture-in', branchId: 'central', registerId: 'counter-1', currency: 'INR', version: '1',
-      items: [{ sku: 'NOTE-A5', product: 'A5 notebook', barcode: '0012345678905', priceMinor: 12900, onHand: 2, attributes: {} }],
+      invoiceSeries:'42',gstRates:{Stationery:18},gstInclusive:true,receiptGstin:'27ABCDE1234F1Z5',
+      items: [{ category:'Stationery',hsn:'4820',sku: 'NOTE-A5', product: 'A5 notebook', barcode: '0012345678905', priceMinor: 12900, onHand: 2, attributes: {} }],
     }));
     return;
   }

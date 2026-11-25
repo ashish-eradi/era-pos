@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { cashAmount } from '@era/contracts';
+import { cashAmount, catalogLine, saleTotals, validBuyer, gstStates } from '@era/contracts';
 import type { CashInput, UpiCheckout } from '../bridge';
 import { cachedCatalog } from './catalog';
 import { apiUrl, catalogCredential, pairing } from './pairing';
@@ -39,19 +39,25 @@ export async function upi(database: DatabaseSync, input?: CashInput): Promise<Up
     let amount = 0;
     const items = new Map(catalog.items.map((item) => [item.sku, item]));
     const skus = new Set<string>();
+    let gstInvoice=false;
     const lines = input.lines.map(({ sku, quantity }) => {
       const item = items.get(sku);
       if (!item || skus.has(sku) || !Number.isInteger(quantity) || quantity < 1 || quantity > Math.min(item.onHand, 1000)) {
         throw new Error('Check the UPI cart quantities');
       }
       skus.add(sku);
-      amount += item.priceMinor * quantity;
+      const line = catalogLine(item,quantity,catalog);
+      gstInvoice ||= !!line.gst;
+      if (line.gst && (!/^(?:\d{4}|\d{6}|\d{8})$/.test(line.gst.hsn) || !Object.hasOwn(gstStates,input.placeOfSupply ?? catalog.receiptGstin?.slice(0,2) ?? '') || !Object.hasOwn(gstStates,catalog.receiptGstin?.slice(0,2) ?? '')))
+        throw new Error('Configure the HSN and place of supply before starting payment');
+      amount += saleTotals([line],0).total;
       return { sku, quantity };
     });
+    if (gstInvoice && !validBuyer(input.buyer,amount)) throw new Error('Enter buyer name and address before starting payment');
     if (!amount || !cashAmount(amount)) throw new Error('Enter a positive UPI total');
     if (checkout && checkout.operationId !== input.operationId) throw new Error('Finish the existing UPI attempt first');
     checkout ??= { registerId: scope.registerId, operationId: input.operationId, shiftId: input.shiftId,
-      lines, amountMinor: amount, status: 'pending', shortUrl: null, catalogVersion: catalog.version };
+      lines, buyer:input.buyer,placeOfSupply:input.placeOfSupply, amountMinor: amount, status: 'pending', shortUrl: null, catalogVersion: catalog.version };
     persist(database, checkout);
   }
   if (!checkout) throw new Error('Start a UPI payment first');

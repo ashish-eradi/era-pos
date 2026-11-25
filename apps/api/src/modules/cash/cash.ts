@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Headers, Inject, NotFoundException, Param, Post, Query,
 } from '@nestjs/common';
-import { cashAmount, cashSubtotal, isCashReceiptV1 } from '@era/contracts';
+import { cashAmount, saleTotals, isCashReceiptV1 } from '@era/contracts';
 import type { SyncAcknowledgementV1 } from '@era/contracts';
 import type { Pool } from 'pg';
 import { shiftClosed } from './closes';
@@ -74,11 +74,13 @@ export class CashController {
       !Number.isFinite(Date.parse(occurredAt)) || new Date(occurredAt).toISOString() !== occurredAt || !isCashReceiptV1(receipt)) {
       return Promise.resolve(fail('invalid_operation'));
     }
-    const lines = receipt.lines.map(({ sku, product, quantity, unitMinor }) => ({ sku, product, quantity, unitMinor }));
+    const lines = receipt.lines.map(({ sku, product, quantity, unitMinor, gst }) => ({ sku, product, quantity, unitMinor,
+      ...(gst && {gst:{rate:gst.rate,inclusive:gst.inclusive,hsn:gst.hsn}}) }));
     const saved = {
       shiftId: receipt.shiftId, currency: receipt.currency, lines, discountMinor: receipt.discountMinor,
-      tenderedMinor: receipt.tenderedMinor, totalMinor: cashSubtotal(lines) - receipt.discountMinor,
+      tenderedMinor: receipt.tenderedMinor, totalMinor: saleTotals(lines,receipt.discountMinor).total,
       ...(receipt.tender && { tender: receipt.tender }),
+      buyer:receipt.buyer, brand:receipt.brand, invoiceNumber:receipt.invoiceNumber, placeOfSupply:receipt.placeOfSupply,
       merchantName: receipt.merchantName, receiptAddress: receipt.receiptAddress, receiptGstin: receipt.receiptGstin,
     };
     const hash = digest(JSON.stringify([occurredAt, saved, receipt.approval]));
@@ -101,6 +103,12 @@ export class CashController {
         : fail('operation_conflict');
       if (receipt.currency !== (scope.country_code === 'IN' ? 'INR' : 'USD')) return fail('invalid_operation');
       if (await shiftClosed(client, merchant, register, receipt.shiftId)) return fail('invalid_operation');
+      if (receipt.invoiceNumber) {
+        const {rows:[series]} = await client.query('SELECT invoice_series::text AS prefix FROM registers WHERE merchant_id=$1 AND id=$2',[merchant,register]);
+        if (!receipt.invoiceNumber.startsWith(series.prefix+'-') || !/^[1-9]\d*$/.test(receipt.invoiceNumber.slice(series.prefix.length+1))) return fail('invalid_operation');
+        if ((await client.query("SELECT 1 FROM cash_sales WHERE merchant_id=$1 AND receipt->>'invoiceNumber'=$2",[merchant,receipt.invoiceNumber])).rowCount)
+          return fail('operation_conflict');
+      }
       const products = await client.query('SELECT sku FROM branch_catalog WHERE merchant_id = $1 AND branch_id = $2 AND sku = ANY($3)',
         [merchant, branch, lines.map(({ sku }) => sku)]);
       if (products.rowCount !== lines.length) return fail('invalid_operation');

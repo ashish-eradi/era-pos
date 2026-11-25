@@ -5,7 +5,8 @@ import {
 } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
 import { allowProvisioning } from './subscription-access';
-import { defaults } from '../onboarding/shared';
+import { gstStates } from '@era/contracts';
+import { defaults, transaction } from '../onboarding/shared';
 
 export const MERCHANT_DATABASE = Symbol('MERCHANT_DATABASE');
 
@@ -28,17 +29,46 @@ export class MerchantController {
   @Get('receipt-settings')
   async receiptSettings(@Param('merchantId') id: string, @Headers('authorization') auth?: string) {
     if ((await this.member(id, auth)).role !== 'owner') throw new ForbiddenException();
-    return (await this.database.query('SELECT receipt_address AS address, receipt_gstin AS gstin FROM merchants WHERE id=$1', [id])).rows[0];
+    return (await this.database.query('SELECT name,coalesce(legal_name,name) AS "legalName",receipt_brand AS brand,gst_rates AS rates,gst_inclusive AS inclusive,country_code AS country,receipt_address AS address, receipt_gstin AS gstin FROM merchants WHERE id=$1', [id])).rows[0];
   }
 
   @Post('receipt-settings')
-  async saveReceiptSettings(@Param('merchantId') id: string, @Body() data: { address?: unknown; gstin?: unknown }, @Headers('authorization') auth?: string) {
-    if ((await this.member(id, auth)).role !== 'owner') throw new ForbiddenException();
+  async saveReceiptSettings(@Param('merchantId') id: string, @Body() data: Record<string,unknown>, @Headers('authorization') auth?: string) {
     const address = data?.address === '' ? '' : requiredText(data?.address, 'receipt address', 400);
     const gstin = data?.gstin === '' ? '' : requiredText(data?.gstin, 'GSTIN', 15).toUpperCase();
     if (gstin && !/^[A-Z0-9]{15}$/.test(gstin)) throw new BadRequestException('Enter a 15-character GSTIN');
-    await this.database.query('UPDATE merchants SET receipt_address=$2, receipt_gstin=$3 WHERE id=$1', [id, address, gstin]);
-    return { address, gstin };
+    const name = data.name === undefined ? null : requiredText(data.name,'business name',120);
+    const legalName = data.legalName === undefined ? null : requiredText(data.legalName,'legal name',120);
+    let brand:Record<string,unknown>|undefined;
+    if (data.brand !== undefined) {
+      if (!data.brand || typeof data.brand !== 'object' || Array.isArray(data.brand)) throw new BadRequestException('Invalid receipt branding');
+      brand = Object.fromEntries(Object.entries(data.brand).filter(([,v])=>v !== ''));
+      for (const [key,value] of Object.entries(brand)) {
+        if (typeof value !== 'string' || (key === 'logo' ? value.length>32768 || !/^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/=]+$/.test(value)
+          : !['header','footer','returnPolicy'].includes(key) || value.length>800)) throw new BadRequestException('Invalid receipt text or PNG logo');
+      }
+    }
+    if (data.rates !== undefined && (!data.rates || typeof data.rates !== 'object' || Array.isArray(data.rates) ||
+      Object.entries(data.rates).some(([k,v])=>!k.trim() || k.length>80 || typeof v!=='number' || !Number.isFinite(v) || Math.abs(v*100-Math.round(v*100))>1e-8 || v<0 || v>100)))
+      throw new BadRequestException('Provide GST percentages (up to two decimal places) for named categories');
+    if (data.inclusive !== undefined && typeof data.inclusive !== 'boolean') throw new BadRequestException('Select a price mode');
+    if (data.rates && Object.keys(data.rates).length && !Object.hasOwn(gstStates,gstin.slice(0,2))) throw new BadRequestException('Invalid supplier state in GSTIN');
+    return transaction(this.database,async client=>{
+      const member=await this.member(id,auth,client);
+      if (member.role!=='owner') throw new ForbiddenException();
+      const result = await client.query(`UPDATE merchants SET receipt_address=$2,receipt_gstin=$3,name=coalesce($4,name),
+        legal_name=coalesce($5,legal_name),receipt_brand=coalesce($6::jsonb,receipt_brand),gst_rates=coalesce($7::jsonb,gst_rates),
+        gst_inclusive=coalesce($8,gst_inclusive) WHERE id=$1 AND
+        (coalesce($7::jsonb,gst_rates)='{}'::jsonb OR (country_code='IN' AND $3 ~ '^[0-9]{2}[A-Z0-9]{13}$' AND $2 <> ''))
+        RETURNING name,coalesce(legal_name,name) AS "legalName",receipt_address AS address,receipt_gstin AS gstin,
+        receipt_brand AS brand,gst_rates AS rates,gst_inclusive AS inclusive,country_code AS country`,
+        [id,address,gstin,name,legalName,brand,data.rates,data.inclusive]);
+      if (!result.rowCount) throw new BadRequestException('Configure an Indian business address and GSTIN before enabling GST');
+      await client.query(`INSERT INTO catalog_imports (merchant_id,branch_id,digest,membership_id,version)
+        SELECT b.merchant_id,b.id,$2,$3,coalesce(max(i.version),0)+1 FROM branches b LEFT JOIN catalog_imports i
+        ON (i.merchant_id,i.branch_id)=(b.merchant_id,b.id) WHERE b.merchant_id=$1 GROUP BY b.merchant_id,b.id`,[id,randomUUID(),member.id]);
+      return result.rows[0];
+    });
   }
 
   private async member(

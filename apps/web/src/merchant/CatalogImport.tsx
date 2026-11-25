@@ -3,7 +3,7 @@ import { Action, request } from '../onboarding';
 
 type Draft = {
   digest: string;
-  rows: Array<{ sku: string; category?: string | null; product: string; barcode: string; priceMinor: number; openingStock: number | null }>;
+  rows: Array<{ sku: string; category?: string | null; hsn?:string|null; product: string; barcode: string; priceMinor: number; openingStock: number | null }>;
   issues: Array<{ row: number; message: string }>;
 };
 
@@ -44,9 +44,10 @@ export function CatalogImport({ path, token }: { path: string; token: string }) 
     <table><thead><tr><th>SKU</th><th>Barcode</th><th>Product and price</th></tr></thead>
       <tbody>{visible.sort((a,b) => sort === 'priceMinor' ? a.priceMinor-b.priceMinor : a[sort].localeCompare(b[sort])).map(item =>
         <tr key={item.sku}><td>{item.sku}</td><td>{item.barcode}</td><td><Action key={JSON.stringify(item)} title="Save item" run={async form => {
-          await request(`${path}/items`, token, { sku: item.sku, category: form.get('category'), product: form.get('product'), priceMinor: Number(form.get('price')) });
+          await request(`${path}/items`, token, { sku: item.sku, category: form.get('category'), hsn:form.get('hsn'), product: form.get('product'), priceMinor: Number(form.get('price')) });
           refresh(n=>n+1); return 'Saved';
         }}><label>Product<input name="product" required maxLength={150} defaultValue={item.product} /></label>
+          <label>HSN<input name="hsn" inputMode="numeric" pattern="(?:[0-9]{4}|[0-9]{6}|[0-9]{8})" defaultValue={item.hsn ?? ''}/></label>
           <label>Category<input name="category" maxLength={80} defaultValue={item.category ?? ''} /></label>
           <label>Price (minor units)<input name="price" required type="number" min="0" max="1000000000" defaultValue={item.priceMinor} /></label>
         </Action></td></tr>)}</tbody></table><details>
