@@ -1,8 +1,14 @@
 import type { CurrencyV1 } from './index';
 
-export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number };
+import { saleTotals, gstStates, validBuyer } from './gst';
+import type { GstLine, ReceiptBrand, InvoiceBuyer } from './gst';
+export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number; gst?:GstLine };
 export type CashReceiptV1 = {
   kind: 'cash_sale';
+  invoiceNumber?:string;
+  placeOfSupply?:string;
+  buyer?:InvoiceBuyer;
+  brand?:ReceiptBrand;
   merchantName?: string;
   receiptAddress?: string;
   receiptGstin?: string;
@@ -36,10 +42,19 @@ export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
   if (!receipt.lines.every((line) => line && typeof line.sku === 'string' && line.sku.length > 0 && line.sku.length <= 80 && !line.sku.includes('\0') &&
       typeof line.product === 'string' && line.product.length > 0 && line.product.length <= 150 && !line.product.includes('\0') &&
       Number.isInteger(line.quantity) && line.quantity > 0 && line.quantity <= 1000 && cashAmount(line.unitMinor))) return false;
+  if ((receipt.buyer !== undefined || receipt.placeOfSupply !== undefined) && receipt.invoiceNumber === undefined) return false;
+  if (receipt.brand !== undefined && (!receipt.brand || typeof receipt.brand !== 'object' || Array.isArray(receipt.brand) ||
+      Object.entries(receipt.brand).some(([k,v])=>typeof v !== 'string' || (k === 'logo' ? !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(v) || v.length>32768 : !['legalName','header','footer','returnPolicy'].includes(k) || v.length>800)))) return false;
+  if (receipt.lines.some(l=>l.gst !== undefined && (!l.gst || !Number.isFinite(l.gst.rate) || Math.abs(l.gst.rate*100-Math.round(l.gst.rate*100))>1e-8 || l.gst.rate<0 || l.gst.rate>100 || typeof l.gst.inclusive !== 'boolean' || typeof l.gst.hsn !== 'string' || !/^(?:\d{4}|\d{6}|\d{8})$/.test(l.gst.hsn)))) return false;
+  if (receipt.lines.some(l=>l.gst) && (receipt.currency !== 'INR' || !/^\d{2}[A-Z0-9]{13}$/.test(receipt.receiptGstin ?? '') ||
+    !Object.hasOwn(gstStates,receipt.placeOfSupply ?? '') || !Object.hasOwn(gstStates,receipt.receiptGstin?.slice(0,2) ?? '') || !/^[A-Z0-9/-]{1,16}$/.test(receipt.invoiceNumber ?? ''))) return false;
   const subtotal = cashSubtotal(receipt.lines);
+  if (!cashAmount(subtotal) || receipt.discountMinor>subtotal) return false;
+  const {total} = saleTotals(receipt.lines,receipt.discountMinor);
+  if (receipt.invoiceNumber !== undefined && (typeof receipt.invoiceNumber!=='string' || !receipt.lines.some(line=>line.gst) || !validBuyer(receipt.buyer,total))) return false;
   return new Set(receipt.lines.map(({ sku }) => sku)).size === receipt.lines.length &&
-    cashAmount(subtotal) && receipt.discountMinor <= subtotal && receipt.tenderedMinor >= subtotal - receipt.discountMinor &&
+    cashAmount(subtotal) && receipt.discountMinor <= subtotal && cashAmount(total) && receipt.tenderedMinor >= total &&
     (receipt.discountMinor === 0 || (typeof receipt.approval === 'string' && /^[A-Za-z0-9_-]{43}$/.test(receipt.approval))) &&
     (receipt.tender === undefined || (receipt.tender === 'upi' && receipt.currency === 'INR' &&
-      receipt.discountMinor === 0 && receipt.tenderedMinor === subtotal && subtotal > 0));
+      receipt.discountMinor === 0 && receipt.tenderedMinor === total && total > 0));
 }

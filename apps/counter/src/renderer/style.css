@@ -51,6 +51,7 @@ kbd { font:600 .67rem monospace; padding:.12rem .35rem; border:1px solid current
 .sale-receipt { max-width:25rem; padding:1.5rem; margin:1rem auto; background:white; color:#172f2a; border:1px solid var(--line); box-shadow:0 5px 15px #0001; }
 .sale-receipt header,.sale-receipt footer { text-align:center; }
 .sale-receipt header p { white-space:pre-line; }
+.sale-receipt .tax-row {display:contents}
 .sale-receipt dl { display:grid;grid-template-columns:1fr auto; }
 .sale-receipt dd { text-align:right; margin:0; }
 .sale-receipt small { overflow-wrap:anywhere; }

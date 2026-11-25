@@ -202,6 +202,24 @@ export async function checkOnboarding(port, connectionString) {
     assert.equal(sales[0].receipt.approval, undefined);
     assert.deepEqual((await call(`${otherMerchant}/cash-sales`, otherOwner.token, 200)).map(row => row.registerId), [otherRegister.id]);
     assert.equal((await db.query("SELECT 1 FROM stock_movements WHERE merchant_id = $1 AND kind = 'cash_sale'", [merchantId])).rowCount, 1);
+    const receiptSettings = {name:'Demo store',legalName:'Demo legal',address:'Example address',gstin:'27ABCDE1234F1Z5',
+      brand:{footer:'Visit again'},rates:{Stationery:18},inclusive:false};
+    await call(`${merchant}/receipt-settings`,owner.token,201,receiptSettings);
+    await call(`${importPath}/items`,owner.token,201,{sku:'NOTE-A5',product:'A5 notebook',priceMinor:12900,hsn:'4820'});
+    const taxedCatalog = await call('devices/catalog',freshProof,201,{deviceId});
+    assert.equal(taxedCatalog.gstRates.Stationery,18);
+    assert.equal(taxedCatalog.items.find(item=>item.sku==='NOTE-A5').hsn,'4820');
+    const invoice = {...operation,operationId:randomUUID(),payload:{...operation.payload,discountMinor:0,approval:undefined,
+      invoiceNumber:taxedCatalog.invoiceSeries+'-1',receiptGstin:receiptSettings.gstin,placeOfSupply:'29',
+      tenderedMinor:15222,lines:operation.payload.lines.map(line=>({...line,gst:{hsn:'4820',inclusive:false,rate:18}}))}};
+    assert.equal((await call('devices/cash-sales',freshProof,201,{deviceId,operation:invoice})).status,'committed');
+    assert.equal((await call('devices/cash-sales',freshProof,201,{deviceId,operation:invoice})).status,'replayed');
+    const syncedInvoice=(await call(`${merchant}/cash-sales`,owner.token,200)).find(row=>row.id===invoice.operationId);
+    assert.equal(syncedInvoice.receipt.totalMinor,15222);
+    const quoted=await call('devices/returns',freshProof,201,{deviceId,id:randomUUID(),action:'create',shiftId:invoice.payload.shiftId,
+      saleId:invoice.operationId,reason:'Test return',lines:[{sku:'NOTE-A5',quantity:1,disposition:'sellable'}]});
+    assert.equal(quoted.lines[0].taxMinor,2322);
+    assert.equal(quoted.creditMinor,15222);
     console.log('Discount authorization, cash sync replay, single stock decrement and owner isolation passed');
     const heartbeat = { deviceId, appVersion: '0.0.0', pending: 2, rejected: 1, oldestPendingAt: operation.occurredAt };
     await call('devices/heartbeat', otherProof, 401, heartbeat);
@@ -277,7 +295,7 @@ export async function checkOnboarding(port, connectionString) {
       await db.query('BEGIN');
       for (const table of [
         'support_events', 'support_grants', 'support_tickets', 'register_health',
-        'shift_closes', 'cash_sales', 'cash_discount_approvals',
+        'sale_returns', 'shift_closes', 'cash_sales', 'cash_discount_approvals',
         'stock_movements', 'catalog_imports', 'branch_catalog',
         'onboarding_audit', 'activation_codes', 'invitations', 'merchant_audit', 'registers',
         'membership_sessions', 'branch_assignments', 'memberships', 'catalog_barcodes', 'branches', 'entitlements', 'trials',

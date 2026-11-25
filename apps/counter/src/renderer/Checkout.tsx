@@ -3,12 +3,17 @@ import { Returns } from './Returns';
 import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { cashSubtotal } from '@era/contracts';
+import { catalogLine, saleTotals, gstStates } from '@era/contracts';
 import type { CatalogSnapshotV1 } from '@era/contracts';
 import type { CashState } from '../bridge';
 
+const blankBuyer = {name:'',address:'',gstin:'',deliveryAddress:''};
 export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: string; navigate: (page: string) => void; catalog?: CatalogSnapshotV1; reloadCatalog: () => Promise<void> }) {
   const [state, setState] = useState<CashState>();
+  const [buyerDetails,setBuyerDetails]=useState(blankBuyer);
+  const buyer = state?.upi?.buyer ?? (Object.values(buyerDetails).some(Boolean) ? buyerDetails : undefined);
+  const [destination,setDestination] = useState('');
+  const placeOfSupply = state?.upi?.placeOfSupply ?? (destination || catalog?.receiptGstin?.slice(0,2));
   const [cart, setCart] = useState<Record<string, number>>({});
   const searchInput = useRef<HTMLInputElement>(null);
   const shiftForm = useRef<HTMLFormElement>(null);
@@ -44,7 +49,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const latestReceipt = state?.receipts.find(sale => sale.operationId === lastReceipt);
   const pending = state?.pending ?? 0;
   useEffect(() => window.counter.onShiftChanged(() => {
-    setCart({}); setDiscount(false); showClose(false); setOperationId(crypto.randomUUID());
+    setCart({}); setBuyerDetails(blankBuyer); setDestination(''); setDiscount(false); showClose(false); setOperationId(crypto.randomUUID());
     void window.counter.cashState().then(setState).catch(() => setError('Unable to refresh shift'));
   }), []);
   useEffect(() => {
@@ -77,7 +82,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       }
       if (event.key === 'F10' && state?.shift && !payment) {event.preventDefault(); showClose(true);}
       if (event.key === 'Escape' && !payment && !close && Object.values(cart).some(Boolean) && window.confirm('Clear the current cart?')) {
-        setCart({}); setTender(''); setReduction(''); setDiscount(false); setOperationId(crypto.randomUUID());
+        setCart({}); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setDiscount(false); setOperationId(crypto.randomUUID());
       }
     };
     window.addEventListener('keydown',shortcuts);
@@ -125,9 +130,9 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     window.addEventListener('keydown', scan, true);
     return () => window.removeEventListener('keydown', scan, true);
   }, [page, catalog, state?.shift, busy, close, payment]);
-  const lines = items.filter(({ sku }) => cart[sku]).map((item) => ({
-    sku: item.sku, product: item.product, unitMinor: item.priceMinor, quantity: cart[item.sku],
-  }));
+  const lines = items.filter(({ sku }) => cart[sku]).map(item=>catalogLine(item,cart[item.sku],catalog!));
+  const discountMinor = discount ? Math.round(Number(reduction)*100) : 0;
+  const totals = saleTotals(lines,Number.isSafeInteger(discountMinor) ? discountMinor : 0);
   const search = query.trim().toLowerCase();
   const categoryOf = (item: CatalogSnapshotV1['items'][number]) => item.category?.trim() || 'Uncategorized';
   const categories = [...new Set(items.map(categoryOf))].sort((a, b) => a.localeCompare(b));
@@ -161,7 +166,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         const result = await window.counter.closeShift(amount);
         setState(await window.counter.cashState());
         showClose(false);
-        setCart({});
+        setCart({}); setBuyerDetails(blankBuyer); setDestination('');
         setOperationId(crypto.randomUUID());
         setNotice(`Shift closed. Expected ${money(result.expected)}. Variance ${money(result.variance)}.`);
       }
@@ -171,11 +176,11 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   async function complete(tenderedMinor: number, discountMinor: number, approval?: string, tender?: 'upi') {
       if (!state?.shift || !catalog) return;
       const id = await window.counter.cashSale({
-        operationId, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor, tenderedMinor, approval, tender, fallback,
+        operationId, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor, tenderedMinor, approval, tender, fallback,placeOfSupply,buyer,
       });
       setTender(''); setReduction('');
       setLastReceipt(id);
-      setCart({});
+      setCart({}); setBuyerDetails(blankBuyer); setDestination('');
       setQuery('');
       setDiscount(false);
       setFallback(false);
@@ -184,7 +189,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       setState(next);
       await reloadCatalog();
       const saved = next.receipts.find((item) => item.operationId === id);
-      const change = saved ? saved.payload.tenderedMinor - (cashSubtotal(saved.payload.lines) - saved.payload.discountMinor) : 0;
+      const change = saved ? saved.payload.tenderedMinor - saleTotals(saved.payload.lines,saved.payload.discountMinor).total : 0;
       setNotice(tender ? 'UPI sale saved.' : `Sale saved. Change ${money(change)}.`);
       void window.counter.syncCash().then(setState).catch(() => undefined);
   }
@@ -197,7 +202,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
 
   function checkUpi(create: boolean) {
     if (!state?.shift || !catalog) return;
-    const input = { operationId, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor: 0, tenderedMinor: 0 };
+    const input = { operationId, placeOfSupply,buyer, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor: 0, tenderedMinor: 0 };
     void run(async () => {
       try { await window.counter.upi(create ? input : undefined); }
       finally { setState(await window.counter.cashState()); }
@@ -257,10 +262,10 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
             <legend>Cart and payment</legend>
             <button type="button" disabled={!!payment || discount} onClick={() => void run(async () => {
               setState(await window.counter.parkSale(operationId,lines));
-              setCart({}); setTender(''); setReduction(''); setQuery(''); setLastReceipt('');
+              setCart({}); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setQuery(''); setLastReceipt('');
               setOperationId(crypto.randomUUID()); setNotice('Sale parked on this register.');
             })}>Park sale</button>
-            <ul>{lines.map((line) => <li key={line.sku}><b>{line.product}</b><small>{line.sku} · {money(line.unitMinor)} each · {money(line.unitMinor * line.quantity)}</small>
+            <ul>{lines.map((line,i) => <li key={line.sku}><b>{line.product}</b><small>{line.sku} · {money(line.unitMinor)} each · {money(totals.breakdown[i].payable)} due</small>
               <label>Quantity<input aria-label={`Quantity for ${line.product}`} type="number" min="1"
                 max={Math.min(1000, items.find(({ sku }) => sku === line.sku)!.onHand)}
                 key={line.quantity} defaultValue={line.quantity} required disabled={!!payment}
@@ -279,8 +284,13 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
               <button type="button" disabled={!!payment} onClick={() => setCart((current) => ({ ...current, [line.sku]: Math.max(0, current[line.sku] - 1) }))} aria-label={`Remove one ${line.product}`}>&minus;</button>
               <button type="button" aria-label={`Add one ${line.product}`} disabled={!!payment || line.quantity >= Math.min(1000, items.find(item => item.sku === line.sku)!.onHand)} onClick={() => add(line.sku)}>+</button>
             </li>)}</ul>
-            <dl className="totals-list"><dt>Subtotal</dt><dd>{money(cashSubtotal(lines))}</dd><dt>Tax</dt><dd>{money(0)}</dd><dt>Discount</dt><dd>{money(discount ? Math.round(Number(reduction)*100) : 0)}</dd></dl>
-            <p className="total">Amount due <strong>{money(cashSubtotal(lines) - (discount ? Math.round(Number(reduction)*100) : 0))}</strong></p>
+            {lines.some(line=>line.gst) && <label>Place of supply<select required disabled={!!payment} value={placeOfSupply ?? ''} onChange={e=>setDestination(e.target.value)}>
+              {Object.entries(gstStates).sort().map(([code,name])=><option key={code} value={code}>{code} Â· {name}</option>)}</select></label>}
+            {lines.some(line=>line.gst) && <details open={totals.total>=5000000 || undefined}><summary>Buyer details{totals.total>=5000000 ? ' (required)' : ''}</summary>
+              {(['name','address','gstin','deliveryAddress'] as const).map(key=><label key={key}>{{name:'Buyer name',address:'Billing address',gstin:'Buyer GSTIN (if registered)',deliveryAddress:'Delivery address (if different)'}[key]}
+                <input disabled={!!payment} maxLength={key==='name'?120:key==='gstin'?15:400} value={buyer?.[key] ?? ''} onChange={e=>setBuyerDetails({...buyerDetails,[key]:key==='gstin'?e.target.value.toUpperCase():e.target.value})}/></label>)}</details>}
+            <dl className="totals-list"><dt>Before tax and discount</dt><dd>{money(totals.total-totals.tax+discountMinor)}</dd><dt>Tax</dt><dd>{money(totals.tax)}</dd><dt>Discount</dt><dd>{money(discount ? Math.round(Number(reduction)*100) : 0)}</dd></dl>
+            <p className="total">Amount due <strong>{money(totals.total)}</strong></p>
             {catalog?.currency === 'INR' && !payment && !discount && <button type="button" onClick={() => checkUpi(true)}>Start UPI payment</button>}
             {payment && <>
               <p>UPI {payment.status} · {money(payment.amountMinor)}</p>
@@ -305,7 +315,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
               <label>Owner approval code<input name="approval" required autoComplete="off" /></label>
             </>}
             <label>Cash tendered ({currency})<input name="tendered" value={tender} onChange={e => setTender(e.target.value)} type="number" min="0" step=".01" required /></label>
-            {tender && <p>Change {money(Math.max(0,Math.round(Number(tender)*100)-cashSubtotal(lines)+(discount ? Math.round(Number(reduction)*100) : 0)))}</p>}
+            {tender && <p>Change {money(Math.max(0,Math.round(Number(tender)*100)-totals.total))}</p>}
             <button>Complete cash sale <kbd>F9</kbd></button>
             </>}
           </fieldset>
@@ -330,11 +340,11 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         Sync sales
       </button>
       </div>
-      {page === 'Sell' && lastReceipt && <>{latestReceipt && <SaleReceipt sale={latestReceipt}/>}<button onClick={() => void run(() => window.counter.printReceipt(lastReceipt))}>Print receipt</button><button onClick={() => {setLastReceipt('');setNotice('');searchInput.current?.focus();}}>Next sale</button></>}
+      {page === 'Sell' && lastReceipt && <>{latestReceipt && <SaleReceipt sale={latestReceipt}/>}<button disabled={busy} onClick={() => void run(() => window.counter.printReceipt(lastReceipt,true))}>Print receipt</button><button onClick={() => {setLastReceipt('');setNotice('');searchInput.current?.focus();}}>Next sale</button></>}
       <div className="panel" hidden={page !== 'Receipts'}>
       {!state.receipts.length && <p>No saved receipts yet.</p>}
       {state.receipts.length > 0 && <><h3>Recent receipts</h3><ul>{state.receipts.map((sale) => <li key={sale.operationId}>
-        {new Date(sale.occurredAt).toLocaleString()} · {money(cashSubtotal(sale.payload.lines) - sale.payload.discountMinor, sale.payload.currency)} · {sale.status}{' '}
+        {new Date(sale.occurredAt).toLocaleString()} · {money(saleTotals(sale.payload.lines,sale.payload.discountMinor).total, sale.payload.currency)} · {sale.status}{' '}
         <button disabled={busy} onClick={() => void run(() => window.counter.printReceipt(sale.operationId))}>
           {sale.operationId === lastReceipt ? 'Print receipt' : 'Reprint receipt'}
         </button>

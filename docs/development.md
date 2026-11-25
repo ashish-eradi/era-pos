@@ -76,6 +76,12 @@ Open the merchant workspace in a separate tab. Accept the invitation, invite sta
 
 The dev web server proxies API requests to port 3001. Deploy the built web app with a same-origin HTTPS reverse proxy for `/v1`. The counter defaults to the local API. For a remote API, set `ERA_API_ORIGIN` in the counter process environment to its HTTPS origin. Device authentication for sales sync and replacement recovery are future work. The merchant workspace restores its local session after a reload. End local session clears it from this browser. After expiration, use a fresh invitation for the same role and address.
 
+## Configure GST and receipt printing
+
+Owners can set the business identity, PNG logo, printed text, category GST percentages and inclusive pricing in **Receipt settings**. Assign HSN codes in **Catalog**, then download the updated catalog on each counter. Use the rates applicable to the store's goods. For a taxable sale, confirm the place of supply and enter buyer details when required. The sale stores its invoice number, prices, tax rules and branding for reprints and returns. This flow covers ordinary retail sales under forward charge. IRN generation, e-invoicing integration and special supplies are outside this implementation.
+
+For a network ESC/POS printer, set `ERA_PRINTER_HOST` before launching Electron. `ERA_PRINTER_PORT` defaults to 9100. Set `ERA_PRINTER_WIDTH` to 58 or 80 in millimetres, or set it to `auto` and specify the installed queue via `ERA_PRINTER_NAME` to read its driver-reported paper size. Enable `ERA_PRINTER_DRAWER=1` for a pulse on the first cash-sale print action. A reprint or UPI receipt does not open the drawer. Without a network host the counter uses the operating system print dialog. The simulated printer test runs with `node_modules/.bin/electron tests/smoke/thermal.mjs` after building the counter.
+
 ## Publish a branch catalog
 
 In the merchant workspace, open **Import catalog and opening stock** for the branch and preview `fixtures/catalog.csv`. Keep the header order. Supply integer minor-unit prices, optional opening quantities and optional JSON attributes with text values. Keep leading zeroes in barcodes by exporting them as text. Fix any preview issues, then confirm to publish the version. Repeating the same import returns its original version and leaves stock unchanged. A later import can add SKUs or update price and attributes. Leave opening stock blank to keep a prior quantity.

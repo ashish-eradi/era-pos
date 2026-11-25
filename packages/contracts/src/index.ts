@@ -6,9 +6,15 @@ export type HealthResponseV1 = {
 export { cashAmount, cashSubtotal, isCashReceiptV1 } from './cash';
 export type { CashLineV1, CashReceiptV1 } from './cash';
 
+export { saleTotals, catalogLine, gstStates, gstComponents, validBuyer } from './gst';
+export type { ReceiptBrand, InvoiceBuyer } from './gst';
 export type CurrencyV1 = 'INR' | 'USD';
 
 export type CatalogSnapshotV1 = {
+  invoiceSeries?: string;
+  gstRates?: Record<string,number>;
+  gstInclusive?:boolean;
+  brand?: import('./gst').ReceiptBrand;
   merchantName?: string;
   receiptAddress?: string;
   receiptGstin?: string;
@@ -18,6 +24,7 @@ export type CatalogSnapshotV1 = {
   currency: CurrencyV1;
   version: string;
   items: Array<{
+    hsn?: string | null;
     category?: string | null;
     sku: string;
     product: string;

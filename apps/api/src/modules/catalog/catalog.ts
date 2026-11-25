@@ -46,7 +46,7 @@ export class CatalogController {
     return transaction(this.database, async client => {
       await owner(client, merchant, authorization);
       const attributes = Object.fromEntries(Object.entries(query).map(([key,value]) => [text(key,'attribute',40),text(value,'value',80)]));
-      return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",category,attributes FROM branch_catalog
+      return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",category,hsn,attributes FROM branch_catalog
         WHERE merchant_id=$1 AND branch_id=$2 AND attributes @> $3::jsonb ORDER BY sku`, [merchant,branch,JSON.stringify(attributes)])).rows;
     });
   }
@@ -63,12 +63,14 @@ export class CatalogController {
       if (typeof price !== 'number' || !Number.isInteger(price) || price < 0 || price > 1_000_000_000)
         throw new BadRequestException('Invalid price in minor units');
       await client.query('SELECT id FROM merchants WHERE id=$1 FOR UPDATE',[merchant]);
-      const item = await client.query('SELECT product,price_minor,category FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',[merchant,branch,sku]);
+      const item = await client.query('SELECT product,price_minor,category,hsn FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',[merchant,branch,sku]);
       if (!item.rowCount) throw new NotFoundException();
       const category = data.category === undefined ? item.rows[0].category : data.category === '' ? null : text(data.category,'category',80);
-      if (item.rows[0].category === category && item.rows[0].product === product && item.rows[0].price_minor === price) return { updated: false };
-      await client.query('UPDATE branch_catalog SET product=$4,price_minor=$5,category=$6 WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',
-        [merchant,branch,sku,product,price,category]);
+      const hsn = data.hsn === undefined ? item.rows[0].hsn : data.hsn || null;
+      if (hsn !== null && (typeof hsn !== 'string' || !/^(?:\d{4}|\d{6}|\d{8})$/.test(hsn))) throw new BadRequestException('Enter a 4, 6 or 8 digit HSN');
+      if (item.rows[0].hsn === hsn && item.rows[0].category === category && item.rows[0].product === product && item.rows[0].price_minor === price) return { updated: false };
+      await client.query('UPDATE branch_catalog SET product=$4,price_minor=$5,category=$6,hsn=$7 WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',
+        [merchant,branch,sku,product,price,category,hsn]);
       await client.query(`INSERT INTO catalog_imports (merchant_id,branch_id,digest,membership_id,version)
         SELECT $1,$2,$3,$4,COALESCE(max(version),0)+1 FROM catalog_imports WHERE merchant_id=$1 AND branch_id=$2`,
         [merchant,branch,randomUUID(),actor]);
@@ -142,12 +144,13 @@ export class CatalogController {
     const deviceId = uuid(parseInput(deviceInput,input).deviceId, 'device ID');
     const { rows } = await this.database.query(`
       SELECT r.merchant_id AS "merchantId", r.branch_id AS "branchId", r.id AS "registerId",
-        m.name AS "merchantName", m.receipt_address AS "receiptAddress", m.receipt_gstin AS "receiptGstin",
+        r.invoice_series::text AS "invoiceSeries", m.gst_rates AS "gstRates",m.gst_inclusive AS "gstInclusive",
+        m.receipt_brand || jsonb_build_object('legalName',coalesce(m.legal_name,m.name)) AS brand,m.name AS "merchantName", m.receipt_address AS "receiptAddress", m.receipt_gstin AS "receiptGstin",
         CASE m.country_code WHEN 'IN' THEN 'INR' ELSE 'USD' END AS currency,
         COALESCE((SELECT max(version) FROM catalog_imports WHERE merchant_id = r.merchant_id AND branch_id = r.branch_id), 0)::text AS version,
         COALESCE((
           SELECT jsonb_agg(jsonb_build_object('sku', c.sku, 'product', c.product, 'barcode', c.barcode,
-            'priceMinor', c.price_minor, 'category', c.category, 'attributes', c.attributes, 'onHand', COALESCE(s.total, 0)) ORDER BY c.sku)
+            'priceMinor', c.price_minor, 'category', c.category,'hsn',c.hsn, 'attributes', c.attributes, 'onHand', COALESCE(s.total, 0)) ORDER BY c.sku)
           FROM branch_catalog c LEFT JOIN LATERAL (
             SELECT sum(quantity) FILTER (WHERE kind <> 'return_damaged') AS total FROM stock_movements mv
             WHERE (mv.merchant_id, mv.branch_id, mv.sku) = (c.merchant_id, c.branch_id, c.sku)

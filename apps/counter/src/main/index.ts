@@ -135,9 +135,12 @@ async function start(): Promise<void> {
     if (receipt?.status !== 'complete') throw new Error('Completed return not found');
     return printReturn(receipt);
   });
-  ipcMain.handle('counter:print-receipt', (event, id: string) => {
+  ipcMain.handle('counter:print-receipt', (event, id: string,firstPrint?:boolean) => {
     counterOnly(event);
-    return printReceipt(receiptToPrint(storage, id));
+    const sale=receiptToPrint(storage,id);
+    const drawer=firstPrint===true && sale.payload.tender!=='upi' && !!process.env.ERA_PRINTER_HOST &&
+      process.env.ERA_PRINTER_DRAWER==='1' && !!storage.prepare("INSERT OR IGNORE INTO register_settings VALUES (?, '1')").run('drawer-'+id).changes;
+    return printReceipt(sale,drawer);
   });
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

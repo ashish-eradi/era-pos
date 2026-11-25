@@ -5,8 +5,12 @@ export type CashInput = {
   discountMinor: number; tenderedMinor: number; approval?: string;
   tender?: 'upi';
   fallback?: boolean;
+  placeOfSupply?:string;
+  buyer?:import('@era/contracts').InvoiceBuyer;
 };
 export type UpiCheckout = {
+  placeOfSupply?:string;
+  buyer?:import('@era/contracts').InvoiceBuyer;
   registerId: string; operationId: string; shiftId: string; catalogVersion: string;
   amountMinor: number; lines: CashInput['lines']; status: 'pending' | 'paid' | 'expired' | 'cancelled'; shortUrl: string | null;
 };
@@ -45,7 +49,7 @@ export interface CounterBridge {
   cashSale(input: CashInput): Promise<string>;
   syncCash(id?: string): Promise<CashState>;
   clearRejected(id: string): Promise<CashState>;
-  printReceipt(id: string): Promise<void>;
+  printReceipt(id: string, firstPrint?:boolean): Promise<void>;
   returns(): Promise<Array<{ draft: ReturnRequest; receipt: ReturnReceipt | null }>>;
   changeReturn(id: string, action: 'create' | 'get' | 'cancel', draft?: ReturnRequest): ReturnType<CounterBridge['returns']>;
   printReturn(id: string): Promise<void>;
