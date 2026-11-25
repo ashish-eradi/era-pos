@@ -46,7 +46,7 @@ export class CatalogController {
     return transaction(this.database, async client => {
       await owner(client, merchant, authorization);
       const attributes = Object.fromEntries(Object.entries(query).map(([key,value]) => [text(key,'attribute',40),text(value,'value',80)]));
-      return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",attributes FROM branch_catalog
+      return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",category,attributes FROM branch_catalog
         WHERE merchant_id=$1 AND branch_id=$2 AND attributes @> $3::jsonb ORDER BY sku`, [merchant,branch,JSON.stringify(attributes)])).rows;
     });
   }
@@ -63,11 +63,12 @@ export class CatalogController {
       if (typeof price !== 'number' || !Number.isInteger(price) || price < 0 || price > 1_000_000_000)
         throw new BadRequestException('Invalid price in minor units');
       await client.query('SELECT id FROM merchants WHERE id=$1 FOR UPDATE',[merchant]);
-      const item = await client.query('SELECT product,price_minor FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',[merchant,branch,sku]);
+      const item = await client.query('SELECT product,price_minor,category FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',[merchant,branch,sku]);
       if (!item.rowCount) throw new NotFoundException();
-      if (item.rows[0].product === product && item.rows[0].price_minor === price) return { updated: false };
-      await client.query('UPDATE branch_catalog SET product=$4,price_minor=$5 WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',
-        [merchant,branch,sku,product,price]);
+      const category = data.category === undefined ? item.rows[0].category : data.category === '' ? null : text(data.category,'category',80);
+      if (item.rows[0].category === category && item.rows[0].product === product && item.rows[0].price_minor === price) return { updated: false };
+      await client.query('UPDATE branch_catalog SET product=$4,price_minor=$5,category=$6 WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',
+        [merchant,branch,sku,product,price,category]);
       await client.query(`INSERT INTO catalog_imports (merchant_id,branch_id,digest,membership_id,version)
         SELECT $1,$2,$3,$4,COALESCE(max(version),0)+1 FROM catalog_imports WHERE merchant_id=$1 AND branch_id=$2`,
         [merchant,branch,randomUUID(),actor]);
@@ -114,11 +115,12 @@ export class CatalogController {
         await client.query('INSERT INTO catalog_barcodes VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
           [scope[0], item.barcode, item.sku]);
         await client.query(`
-          INSERT INTO branch_catalog (merchant_id, branch_id, sku, product, barcode, price_minor, attributes)
-          VALUES ($1,$2,$3,$4,$5,$6,$7)
+          INSERT INTO branch_catalog (merchant_id, branch_id, sku, product, barcode, price_minor, attributes, category)
+          VALUES ($1,$2,$3,$4,$5,$6,$7, NULLIF($8, ''))
           ON CONFLICT (merchant_id, branch_id, sku) DO UPDATE SET
-            product = EXCLUDED.product, price_minor = EXCLUDED.price_minor, attributes = EXCLUDED.attributes
-        `, [...scope, item.sku, item.product, item.barcode, item.priceMinor, JSON.stringify(item.attributes)]);
+            product = EXCLUDED.product, price_minor = EXCLUDED.price_minor, attributes = EXCLUDED.attributes,
+            category = CASE WHEN $8::text IS NULL THEN branch_catalog.category ELSE EXCLUDED.category END
+        `, [...scope, item.sku, item.product, item.barcode, item.priceMinor, JSON.stringify(item.attributes), item.category ?? null]);
         if (item.openingStock !== null) {
           await client.query(`
             INSERT INTO stock_movements (merchant_id, branch_id, sku, id, kind, quantity)
@@ -140,11 +142,12 @@ export class CatalogController {
     const deviceId = uuid(parseInput(deviceInput,input).deviceId, 'device ID');
     const { rows } = await this.database.query(`
       SELECT r.merchant_id AS "merchantId", r.branch_id AS "branchId", r.id AS "registerId",
+        m.name AS "merchantName", m.receipt_address AS "receiptAddress", m.receipt_gstin AS "receiptGstin",
         CASE m.country_code WHEN 'IN' THEN 'INR' ELSE 'USD' END AS currency,
         COALESCE((SELECT max(version) FROM catalog_imports WHERE merchant_id = r.merchant_id AND branch_id = r.branch_id), 0)::text AS version,
         COALESCE((
           SELECT jsonb_agg(jsonb_build_object('sku', c.sku, 'product', c.product, 'barcode', c.barcode,
-            'priceMinor', c.price_minor, 'attributes', c.attributes, 'onHand', COALESCE(s.total, 0)) ORDER BY c.sku)
+            'priceMinor', c.price_minor, 'category', c.category, 'attributes', c.attributes, 'onHand', COALESCE(s.total, 0)) ORDER BY c.sku)
           FROM branch_catalog c LEFT JOIN LATERAL (
             SELECT sum(quantity) FILTER (WHERE kind <> 'return_damaged') AS total FROM stock_movements mv
             WHERE (mv.merchant_id, mv.branch_id, mv.sku) = (c.merchant_id, c.branch_id, c.sku)

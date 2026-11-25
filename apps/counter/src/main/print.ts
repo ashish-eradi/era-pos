@@ -1,5 +1,7 @@
 import { BrowserWindow } from 'electron';
-import { cashSubtotal } from '@era/contracts';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { SaleReceipt } from '../SaleReceipt';
 import type { CashReceiptV1, ReturnReceipt, SyncRequestV1 } from '@era/contracts';
 
 function escape(text: string): string {
@@ -7,20 +9,12 @@ function escape(text: string): string {
 }
 
 export async function printReceipt(receipt: SyncRequestV1<CashReceiptV1>): Promise<void> {
-  const { payload } = receipt;
-  const format = new Intl.NumberFormat(undefined, { style: 'currency', currency: payload.currency });
-  const money = (amount: number) => format.format(amount / 100);
-  const total = cashSubtotal(payload.lines) - payload.discountMinor;
-  const rows = payload.lines.map((item) => `<tr><td>${escape(item.product)}</td><td>${item.quantity}</td><td>${money(item.quantity * item.unitMinor)}</td></tr>`).join('');
-  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><title>Sale receipt</title>
-    <style>body{font:14px sans-serif;max-width:76mm;margin:6mm auto} small{overflow-wrap:anywhere}
-    table{width:100%}td:last-child{text-align:right}</style>
-    <h1>${payload.tender === 'upi' ? 'UPI' : 'Cash'} receipt</h1><small>Receipt ${escape(receipt.operationId)}<br>Register ${escape(receipt.registerId)}</small>
-    <p>${escape(receipt.occurredAt)}</p><table><tbody>${rows}</tbody></table>
-    <p>Discount ${money(payload.discountMinor)}<br><strong>Total ${money(total)}</strong><br>
-    ${payload.tender === 'upi' ? 'UPI paid' : 'Cash'} ${money(payload.tenderedMinor)}
-    ${payload.tender === 'upi' ? '' : `<br>Change ${money(payload.tenderedMinor - total)}`}</p></html>`;
-  return printDocument(html);
+  const markup = renderToStaticMarkup(createElement(SaleReceipt, { sale: receipt }));
+  return printDocument(`<!doctype html><html lang="en"><meta charset="utf-8"><title>Sale receipt</title>
+    <style>@page{margin:3mm}body{font:12px sans-serif;max-width:72mm;margin:auto}
+    header,footer{text-align:center}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:4px 0;border-bottom:1px dotted}
+    th:last-child,td:last-child{text-align:right}small{display:block;overflow-wrap:anywhere}dl{display:grid;grid-template-columns:1fr auto}
+    dd{text-align:right;margin:0}p{white-space:pre-line}</style>${markup}</html>`);
 }
 
 export async function printReturn(receipt: ReturnReceipt): Promise<void> {

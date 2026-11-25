@@ -25,6 +25,22 @@ function requiredText(value: unknown, field: string, maxLength: number): string 
 export class MerchantController {
   constructor(@Inject(MERCHANT_DATABASE) private readonly database: Pool) {}
 
+  @Get('receipt-settings')
+  async receiptSettings(@Param('merchantId') id: string, @Headers('authorization') auth?: string) {
+    if ((await this.member(id, auth)).role !== 'owner') throw new ForbiddenException();
+    return (await this.database.query('SELECT receipt_address AS address, receipt_gstin AS gstin FROM merchants WHERE id=$1', [id])).rows[0];
+  }
+
+  @Post('receipt-settings')
+  async saveReceiptSettings(@Param('merchantId') id: string, @Body() data: { address?: unknown; gstin?: unknown }, @Headers('authorization') auth?: string) {
+    if ((await this.member(id, auth)).role !== 'owner') throw new ForbiddenException();
+    const address = data?.address === '' ? '' : requiredText(data?.address, 'receipt address', 400);
+    const gstin = data?.gstin === '' ? '' : requiredText(data?.gstin, 'GSTIN', 15).toUpperCase();
+    if (gstin && !/^[A-Z0-9]{15}$/.test(gstin)) throw new BadRequestException('Enter a 15-character GSTIN');
+    await this.database.query('UPDATE merchants SET receipt_address=$2, receipt_gstin=$3 WHERE id=$1', [id, address, gstin]);
+    return { address, gstin };
+  }
+
   private async member(
     merchantId: string, authorization: string | undefined, database: Pool | PoolClient = this.database,
   ): Promise<Member> {

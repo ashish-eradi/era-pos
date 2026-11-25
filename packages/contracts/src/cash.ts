@@ -3,6 +3,9 @@ import type { CurrencyV1 } from './index';
 export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number };
 export type CashReceiptV1 = {
   kind: 'cash_sale';
+  merchantName?: string;
+  receiptAddress?: string;
+  receiptGstin?: string;
   shiftId: string;
   currency: CurrencyV1;
   lines: CashLineV1[];
@@ -23,6 +26,9 @@ export function cashSubtotal(lines: CashLineV1[]): number {
 export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
   if (!value || typeof value !== 'object') return false;
   const receipt = value as CashReceiptV1;
+  for (const [field, limit] of [[receipt.merchantName, 120], [receipt.receiptAddress, 400], [receipt.receiptGstin, 15]] as const) {
+    if (field !== undefined && (typeof field !== 'string' || field.length > limit)) return false;
+  }
   if (receipt.kind !== 'cash_sale' || typeof receipt.shiftId !== 'string' || !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(receipt.shiftId) ||
       !['INR', 'USD'].includes(receipt.currency) || !Array.isArray(receipt.lines) ||
       !receipt.lines.length || receipt.lines.length > 100 ||

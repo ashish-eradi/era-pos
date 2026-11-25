@@ -100,6 +100,7 @@ export async function checkOnboarding(port, connectionString) {
     assert.deepEqual(snapshot.items.map(({ sku, onHand }) => [sku, onHand]), [['NOTE-A5', 10], ['OATS-500', 8], ['TEE-M-NAVY', 5]]);
     assert.equal(snapshot.items[0].barcode, '0012345678905');
     assert.equal(snapshot.items[2].attributes.size, 'M');
+    assert.deepEqual(snapshot.items.map(item => item.category), ['Stationery','Groceries','Apparel']);
     assert.deepEqual((await call(`${importPath}/items?size=M`, owner.token, 200)).map(row => row.sku), ['TEE-M-NAVY']);
     await call('devices/catalog', randomBytes(32).toString('base64url'), 401, { deviceId });
 

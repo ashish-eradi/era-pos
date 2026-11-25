@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { CounterBridge, Pairing } from '../bridge';
 import type { FormEvent } from 'react';
 import type { CatalogSnapshotV1 } from '@era/contracts';
+import { ShoppingBasket, ReceiptText, Undo2, Monitor } from 'lucide-react';
 import { Maintenance } from './Maintenance';
 import { Checkout } from './Checkout';
 import { ErrorBoundary } from '../../../../packages/ui/ErrorBoundary';
@@ -68,8 +69,9 @@ function Counter() {
   const setup = !paired || !authorized || !catalog;
   return <><header className="mast"><span className="brand">ERA POS</span><span>{paired ? `Branch ${paired.branchId} · Register ${paired.registerId}` : 'Register setup'}</span></header>
     <main className="canvas">
-    {paired && <nav className="tabs" aria-label="Counter workspace">{['Sell','Receipts','Returns','Register'].map(name =>
-      <button key={name} aria-current={page === name ? 'page' : undefined} onClick={() => setPage(name)}>{name}</button>)}</nav>}
+    {paired && <nav className="tabs" aria-label="Counter workspace">{['Sell','Receipts','Returns','Register'].map((name,index) => {
+      const Icon = [ShoppingBasket,ReceiptText,Undo2,Monitor][index];
+      return <button key={name} aria-current={page === name ? 'page' : undefined} onClick={() => setPage(name)}><Icon size={20} aria-hidden="true"/> {name} <kbd>F{index+1}</kbd></button>; })}</nav>}
     <div className="setup-grid" hidden={!setup && page !== 'Register'}>
     <section aria-labelledby="storage-title">
       <h2 id="storage-title">Local storage</h2>

@@ -10,6 +10,7 @@ import { SupportTickets } from './SupportTickets';
 import { UpiPayments } from './UpiPayments';
 import { BranchShifts } from './BranchShifts';
 import { Overview } from './Overview';
+import { ReceiptSettings } from './ReceiptSettings';
 import { Signup } from './Signup';
 
 type Session = { merchantId: string; role: string; token: string };
@@ -48,7 +49,7 @@ export function MerchantHome() {
       <nav className="tabs" aria-label="Merchant sections">{['Overview', ...(session.role === 'owner' ? ['Catalog'] : []),
         ...(['owner','manager'].includes(session.role) ? ['Inventory','Returns','Team and registers'] : []),
         ...(['owner','manager','accountant'].includes(session.role) ? ['Sales'] : []),
-        ...(session.role === 'owner' ? ['Payments','Subscription','Integrations','Support'] : [])].map(name =>
+        ...(session.role === 'owner' ? ['Receipt settings','Payments','Subscription','Integrations','Support'] : [])].map(name =>
           <button key={name} aria-current={section === name ? 'page' : undefined} onClick={() => {setSection(name);setMenu(false);}}>{name}</button>)}</nav>
         <button className="quiet" onClick={() => {setSection('Overview');setSession(undefined);setBranches([]);setRegisters([]);setBranchId('');setBusinessDate('');}}>End local session</button>
       </aside><article className="desk"><header className="section-head"><h1>{section}</h1>
@@ -58,6 +59,7 @@ export function MerchantHome() {
         <label className="date-control">Business date<input type="date" value={date} onChange={e=>setBusinessDate(e.target.value)} /></label>
         <Overview date={date} path={`merchants/${session.merchantId}/branches/${branch.id}`} token={session.token} sales={()=>setSection('Sales')} /></>)}
       {!branches.length && <Action title="Refresh branches" run={async()=>{await refresh(session);return '';}}/>}
+      {section === 'Receipt settings' && session.role === 'owner' && <ReceiptSettings key={session.merchantId} path={`merchants/${session.merchantId}/receipt-settings`} token={session.token}/>}
       {section === 'Subscription' && session.role === 'owner' && <Subscription path={`merchants/${session.merchantId}`} token={session.token} />}
       {section === 'Sales' && session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}`} token={session.token} />}
       {section === 'Support' && session.role === 'owner' && <SupportTickets merchantId={session.merchantId} token={session.token} />}

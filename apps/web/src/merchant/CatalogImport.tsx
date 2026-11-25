@@ -3,7 +3,7 @@ import { Action, request } from '../onboarding';
 
 type Draft = {
   digest: string;
-  rows: Array<{ sku: string; product: string; barcode: string; priceMinor: number; openingStock: number | null }>;
+  rows: Array<{ sku: string; category?: string | null; product: string; barcode: string; priceMinor: number; openingStock: number | null }>;
   issues: Array<{ row: number; message: string }>;
 };
 
@@ -44,13 +44,14 @@ export function CatalogImport({ path, token }: { path: string; token: string }) 
     <table><thead><tr><th>SKU</th><th>Barcode</th><th>Product and price</th></tr></thead>
       <tbody>{visible.sort((a,b) => sort === 'priceMinor' ? a.priceMinor-b.priceMinor : a[sort].localeCompare(b[sort])).map(item =>
         <tr key={item.sku}><td>{item.sku}</td><td>{item.barcode}</td><td><Action key={JSON.stringify(item)} title="Save item" run={async form => {
-          await request(`${path}/items`, token, { sku: item.sku, product: form.get('product'), priceMinor: Number(form.get('price')) });
+          await request(`${path}/items`, token, { sku: item.sku, category: form.get('category'), product: form.get('product'), priceMinor: Number(form.get('price')) });
           refresh(n=>n+1); return 'Saved';
         }}><label>Product<input name="product" required maxLength={150} defaultValue={item.product} /></label>
+          <label>Category<input name="category" maxLength={80} defaultValue={item.category ?? ''} /></label>
           <label>Price (minor units)<input name="price" required type="number" min="0" max="1000000000" defaultValue={item.priceMinor} /></label>
         </Action></td></tr>)}</tbody></table><details>
     <summary>Import catalog and opening stock</summary>
-    <p>Prices use minor units. Leave opening stock blank to preserve previously recorded stock.</p>
+    <p>Add an optional final category column to group products at checkout. Prices use minor units. Leave opening stock blank to preserve previously recorded stock.</p>
     <Action title="Preview CSV" run={async (form) => {
       setPreview(undefined);
       const file = form.get('csv');
@@ -65,9 +66,9 @@ export function CatalogImport({ path, token }: { path: string; token: string }) 
     {preview && (preview.draft.issues.length ? <ul>
       {preview.draft.issues.map(({ row, message }, index) => <li key={index}>Row {row} · {message}</li>)}
     </ul> : <>
-      <table><thead><tr><th>SKU</th><th>Product</th><th>Barcode</th><th>Price (minor units)</th><th>Opening stock</th></tr></thead>
+      <table><thead><tr><th>SKU</th><th>Product</th><th>Barcode</th><th>Price (minor units)</th><th>Opening stock</th><th>Category</th></tr></thead>
         <tbody>{preview.draft.rows.map((row) => <tr key={row.sku}>
-          <td>{row.sku}</td><td>{row.product}</td><td>{row.barcode}</td><td>{row.priceMinor}</td><td>{row.openingStock ?? 'Unchanged'}</td>
+          <td>{row.sku}</td><td>{row.product}</td><td>{row.barcode}</td><td>{row.priceMinor}</td><td>{row.openingStock ?? 'Unchanged'}</td><td>{row.category ?? 'Unchanged'}</td>
         </tr>)}</tbody>
       </table>
       <Action key={preview.draft.digest} title="Confirm and publish" run={async () => {

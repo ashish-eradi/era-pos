@@ -174,6 +174,7 @@ export async function commitCash(database: DatabaseSync, input: CashInput): Prom
     });
     const payload: CashReceiptV1 = {
       kind: 'cash_sale', shiftId: shift.id, currency: catalog.currency, lines,
+      merchantName: catalog.merchantName, receiptAddress: catalog.receiptAddress, receiptGstin: catalog.receiptGstin,
       discountMinor: input.discountMinor, tenderedMinor: input.tenderedMinor,
       ...(input.discountMinor && { approval: input.approval }),
       ...(input.tender === 'upi' && { tender: 'upi' as const }),
