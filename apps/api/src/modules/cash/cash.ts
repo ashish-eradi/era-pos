@@ -79,6 +79,7 @@ export class CashController {
       shiftId: receipt.shiftId, currency: receipt.currency, lines, discountMinor: receipt.discountMinor,
       tenderedMinor: receipt.tenderedMinor, totalMinor: cashSubtotal(lines) - receipt.discountMinor,
       ...(receipt.tender && { tender: receipt.tender }),
+      merchantName: receipt.merchantName, receiptAddress: receipt.receiptAddress, receiptGstin: receipt.receiptGstin,
     };
     const hash = digest(JSON.stringify([occurredAt, saved, receipt.approval]));
     return transaction(this.database, async (client) => {

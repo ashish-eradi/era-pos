@@ -1,4 +1,4 @@
-sku,product,barcode,price_minor,opening_stock,attributes
-NOTE-A5,A5 notebook,0012345678905,12900,10,
-OATS-500,Rolled oats 500 g,0012345678912,24900,8,"{""pack size"":""500 g""}"
-TEE-M-NAVY,Cotton tee,0012345678929,79900,5,"{""size"":""M"",""colour"":""navy""}"
+sku,product,barcode,price_minor,opening_stock,attributes,category
+NOTE-A5,A5 notebook,0012345678905,12900,10,,Stationery
+OATS-500,Rolled oats 500 g,0012345678912,24900,8,"{""pack size"":""500 g""}",Groceries
+TEE-M-NAVY,Cotton tee,0012345678929,79900,5,"{""size"":""M"",""colour"":""navy""}",Apparel

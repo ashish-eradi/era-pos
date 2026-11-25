@@ -9,12 +9,16 @@ export type { CashLineV1, CashReceiptV1 } from './cash';
 export type CurrencyV1 = 'INR' | 'USD';
 
 export type CatalogSnapshotV1 = {
+  merchantName?: string;
+  receiptAddress?: string;
+  receiptGstin?: string;
   merchantId: string;
   branchId: string;
   registerId: string;
   currency: CurrencyV1;
   version: string;
   items: Array<{
+    category?: string | null;
     sku: string;
     product: string;
     barcode: string;

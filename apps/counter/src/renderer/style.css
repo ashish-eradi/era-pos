@@ -28,3 +28,29 @@ small { display:block; color:var(--muted); }
 .canvas code { font-size:.86rem; }
 .queue-notice,.queue-rejected { padding:.7rem 1rem; border-radius:.55rem; background:#fff2ce; color:#583900; }
 .queue-rejected {background:#ffe9e7; color:#7d2018;}
+
+:root { font-size:18px; }
+button, summary, input:not([type=checkbox]), select { min-height:48px; }
+.tabs button, .category-strip { display:inline-flex; align-items:center; gap:.5rem; }
+kbd { font:600 .67rem monospace; padding:.12rem .35rem; border:1px solid currentColor; border-radius:.3rem; }
+.category-strip { display:flex; flex-wrap:wrap; margin-top:1rem; }
+.category-strip button { background:white; border-color:var(--line); color:var(--pine); }
+.category-strip button[aria-pressed=true] { background:var(--pine); color:white; }
+.product-list li { display:flex; padding:0; overflow:hidden; }
+.product-list .product-tile { display:grid; align-content:start; gap:.3rem; width:100%; min-height:8rem; padding:1rem; overflow-wrap:anywhere; }
+.product-list .product-tile:focus-visible { outline-offset:-4px; }
+.product-tile strong { font-size:1.22rem; }
+.basket li { margin:.5rem 0; padding:.8rem; background:white; border:1px solid var(--line); border-radius:.65rem; }
+.basket li button { min-width:48px; margin:.25rem; }
+.totals-list { display:grid; grid-template-columns:1fr auto; margin:0; }
+.totals-list dd { margin:0; text-align:right; }
+.checkout-toast { position:fixed; z-index:5; bottom:1rem; left:50%; transform:translateX(-50%); background:var(--deep); color:white; padding:.7rem 1.1rem; border-radius:.7rem; box-shadow:0 4px 18px #0003; }
+.skeleton { height:6rem; background:var(--line); border-radius:.8rem; animation:loading 1.2s ease-in-out infinite alternate; }
+@keyframes loading { to { opacity:.45; } }
+@media(prefers-reduced-motion:reduce) { .skeleton { animation:none; } }
+.sale-receipt { max-width:25rem; padding:1.5rem; margin:1rem auto; background:white; color:#172f2a; border:1px solid var(--line); box-shadow:0 5px 15px #0001; }
+.sale-receipt header,.sale-receipt footer { text-align:center; }
+.sale-receipt header p { white-space:pre-line; }
+.sale-receipt dl { display:grid;grid-template-columns:1fr auto; }
+.sale-receipt dd { text-align:right; margin:0; }
+.sale-receipt small { overflow-wrap:anywhere; }

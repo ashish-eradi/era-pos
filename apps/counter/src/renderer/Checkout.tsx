@@ -1,3 +1,4 @@
+import { SaleReceipt } from '../SaleReceipt';
 import { Returns } from './Returns';
 import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useRef, useState } from 'react';
@@ -12,6 +13,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const searchInput = useRef<HTMLInputElement>(null);
   const shiftForm = useRef<HTMLFormElement>(null);
   const saleForm = useRef<HTMLFormElement>(null);
+  const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [operationId, setOperationId] = useState<string>(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
@@ -34,6 +36,12 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       }
     }).catch(() => setError('Checkout storage is unavailable'));
   }, []);
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(''), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+  const latestReceipt = state?.receipts.find(sale => sale.operationId === lastReceipt);
   const pending = state?.pending ?? 0;
   useEffect(() => window.counter.onShiftChanged(() => {
     setCart({}); setDiscount(false); showClose(false); setOperationId(crypto.randomUUID());
@@ -121,7 +129,10 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     sku: item.sku, product: item.product, unitMinor: item.priceMinor, quantity: cart[item.sku],
   }));
   const search = query.trim().toLowerCase();
-  const matches = items.filter(({ product, sku, barcode }) =>
+  const categoryOf = (item: CatalogSnapshotV1['items'][number]) => item.category?.trim() || 'Uncategorized';
+  const categories = [...new Set(items.map(categoryOf))].sort((a, b) => a.localeCompare(b));
+  const activeCategory = category && categories.includes(category) ? category : null;
+  const matches = items.filter(item => !activeCategory || categoryOf(item) === activeCategory).filter(({ product, sku, barcode }) =>
     [product, sku, barcode].some((value) => value.toLowerCase().includes(search)));
 
   async function run(work: () => Promise<void>) {
@@ -200,12 +211,12 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       {lastAttempt && ` Last attempt ${new Date(lastAttempt).toLocaleTimeString()}.`}</p>}
     {!!state?.rejected && <p className="queue-rejected" role="alert">{state.rejected} sales rejected. Review them in Register.</p>}
     <div hidden={page !== 'Sell'}>
-    {!state?.shift ? <form ref={shiftForm} onSubmit={(event) => count(event, false)}>
+    {!state ? <div className="skeleton" role="status" aria-label="Loading checkout"/> : !state.shift ? <form ref={shiftForm} onSubmit={(event) => count(event, false)}>
       <label>Opening cash ({currency ?? "minor units"})<input name="amount" type="number" min="0" step={currency ? ".01" : "1"} required defaultValue="0" /></label>
-      <button disabled={busy || !state}>Open shift</button>
+      <button disabled={busy || !state}>Open shift <kbd>F8</kbd></button>
     </form> : <>
       <p>Shift opened {new Date(state.shift.openedAt).toLocaleString()}</p>
-      <button type="button" disabled={busy || !!payment} onClick={() => showClose(!close)}>{close ? 'Back to checkout' : 'Close shift'}</button>
+      <button type="button" disabled={busy || !!payment} onClick={() => showClose(!close)}>{close ? 'Back to checkout' : 'Close shift'} {!close && <kbd>F10</kbd>}</button>
       {close ? <form onSubmit={(event) => count(event, true)}>
         <label>Counted cash ({currency ?? "minor units"})<input name="amount" type="number" min="0" step={currency ? ".01" : "1"} required /></label>
         <button disabled={busy}>Submit blind count</button>
@@ -218,13 +229,20 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
           if ((cart[match.sku] ?? 0) >= Math.min(1000,match.onHand)) {setError('Available quantity reached'); return;}
           setError(''); add(match.sku); setQuery('');
         }}>
-          <label>Search products or scan a barcode<input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+          <label>Search products or scan a barcode <kbd>F5</kbd><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         </form>
+        {categories.length > 0 && <div className="category-strip" role="group" aria-label="Product categories">
+          <button type="button" aria-pressed={!activeCategory} onClick={() => setCategory(null)}>All products</button>
+          {categories.map(name => <button key={name} type="button" aria-pressed={activeCategory === name}
+            onClick={() => setCategory(name)}>{name}</button>)}
+        </div>}
         {matches.length ? <ul className="product-list">{matches.map((item) => <li key={item.sku}>
-          <button type="button" disabled={busy || !!payment || (cart[item.sku] ?? 0) >= Math.min(1000, item.onHand)} onClick={() => add(item.sku)}>Add {item.product}</button>
-          <strong>{money(item.priceMinor)}</strong>
-          <small>{item.sku} · {item.barcode} · {item.onHand} on hand</small>
-          {Object.entries(item.attributes).map(([key,value]) => <small key={key}>{key} {value}</small>)}
+          <button className="product-tile" type="button" aria-label={`Add ${item.product}, ${item.sku}`}
+            disabled={busy || !!payment || (cart[item.sku] ?? 0) >= Math.min(1000, item.onHand)} onClick={() => add(item.sku)}>
+            <small>{categoryOf(item)}</small><b>{item.product}</b><strong>{money(item.priceMinor)}</strong>
+            <small>{item.sku} &middot; {item.onHand} on hand</small>
+            {Object.entries(item.attributes).map(([key,value]) => <small key={key}>{key} {value}</small>)}
+          </button>
         </li>)}</ul> : <p>{catalog ? 'No matching products.' : 'Download the catalog to check out.'}</p>}
         </div><aside className="basket"><h3>Current sale</h3>
         {!lines.length && <p className="empty-cart">Scan a barcode or choose a product to start a sale.</p>}
@@ -258,8 +276,10 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
                   if (field.validity.valid) setCart((current) => ({ ...current, [line.sku]: quantity }));
                   else field.value = String(line.quantity);
                 }} /></label>
-              <button type="button" disabled={!!payment} onClick={() => setCart((current) => ({ ...current, [line.sku]: Math.max(0, current[line.sku] - 1) }))}>Remove one</button>
+              <button type="button" disabled={!!payment} onClick={() => setCart((current) => ({ ...current, [line.sku]: Math.max(0, current[line.sku] - 1) }))} aria-label={`Remove one ${line.product}`}>&minus;</button>
+              <button type="button" aria-label={`Add one ${line.product}`} disabled={!!payment || line.quantity >= Math.min(1000, items.find(item => item.sku === line.sku)!.onHand)} onClick={() => add(line.sku)}>+</button>
             </li>)}</ul>
+            <dl className="totals-list"><dt>Subtotal</dt><dd>{money(cashSubtotal(lines))}</dd><dt>Tax</dt><dd>{money(0)}</dd><dt>Discount</dt><dd>{money(discount ? Math.round(Number(reduction)*100) : 0)}</dd></dl>
             <p className="total">Amount due <strong>{money(cashSubtotal(lines) - (discount ? Math.round(Number(reduction)*100) : 0))}</strong></p>
             {catalog?.currency === 'INR' && !payment && !discount && <button type="button" onClick={() => checkUpi(true)}>Start UPI payment</button>}
             {payment && <>
@@ -286,14 +306,14 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
             </>}
             <label>Cash tendered ({currency})<input name="tendered" value={tender} onChange={e => setTender(e.target.value)} type="number" min="0" step=".01" required /></label>
             {tender && <p>Change {money(Math.max(0,Math.round(Number(tender)*100)-cashSubtotal(lines)+(discount ? Math.round(Number(reduction)*100) : 0)))}</p>}
-            <button>Complete cash sale</button>
+            <button>Complete cash sale <kbd>F9</kbd></button>
             </>}
           </fieldset>
         </form>}</aside>
       </div>}
     </>}
     </div>
-    {notice && <p role="status">{notice}</p>}
+    {notice && <p className="checkout-toast" role="status">{notice}</p>}
     {error && <p role="alert">{error}</p>}
     {state && <>
       <div className="panel" hidden={page !== "Register"}><h3>Sync queue</h3><p>{state.pending} pending · {state.rejected} need review</p>
@@ -310,7 +330,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         Sync sales
       </button>
       </div>
-      {page === 'Sell' && lastReceipt && <><button onClick={() => void run(() => window.counter.printReceipt(lastReceipt))}>Print receipt</button><button onClick={() => {setLastReceipt('');setNotice('');searchInput.current?.focus();}}>Next sale</button></>}
+      {page === 'Sell' && lastReceipt && <>{latestReceipt && <SaleReceipt sale={latestReceipt}/>}<button onClick={() => void run(() => window.counter.printReceipt(lastReceipt))}>Print receipt</button><button onClick={() => {setLastReceipt('');setNotice('');searchInput.current?.focus();}}>Next sale</button></>}
       <div className="panel" hidden={page !== 'Receipts'}>
       {!state.receipts.length && <p>No saved receipts yet.</p>}
       {state.receipts.length > 0 && <><h3>Recent receipts</h3><ul>{state.receipts.map((sale) => <li key={sale.operationId}>
@@ -320,8 +340,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         </button>
         {state.shift && <button onClick={() => {setReturnId(sale.operationId); navigate("Returns");}}>Start return</button>}
         <details><summary>Receipt details</summary>
-          <p>Receipt <code>{sale.operationId}</code></p>
-          <ul>{sale.payload.lines.map((line) => <li key={line.sku}>{line.product} × {line.quantity} · {money(line.unitMinor, sale.payload.currency)} each</li>)}</ul>
+          <SaleReceipt sale={sale}/>
         </details>
       </li>)}</ul></>}
       <form onSubmit={(event) => {

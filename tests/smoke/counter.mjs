@@ -166,12 +166,16 @@ async function launch(activate = false) {
         `)) download = false;
         if (page && await evaluate(page.webSocketDebuggerUrl, `
           (() => {
-            const button = (text) => [...document.querySelectorAll('button')].find((control) => control.textContent.trim() === text && !control.disabled);
+            const button = (text) => [...document.querySelectorAll('button')].find(control => {
+              const label = control.cloneNode(true);
+              label.querySelectorAll('kbd,svg').forEach(node => node.remove());
+              return label.textContent.trim() === text && !control.disabled;
+            });
             const next = window.checkoutStep ?? 0;
             const checkout = document.querySelector('[aria-labelledby="checkout-title"]');
             if (!checkout) return false;
             const open = button('Open shift');
-            const add = button('Add A5 notebook');
+            const add = checkout.querySelector('.product-tile[aria-label^="Add A5 notebook,"]:enabled');
             const complete = button('Complete cash sale');
             if (${!online}) {
               if (next === 0 && open) { window.checkoutStep = 1; open.click(); }

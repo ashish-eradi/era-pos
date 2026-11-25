@@ -4,6 +4,7 @@ import { digest } from '../onboarding/shared';
 const columns = ['sku', 'product', 'barcode', 'price_minor', 'opening_stock', 'attributes'];
 
 export interface CatalogRow {
+  category?: string;
   sku: string;
   product: string;
   barcode: string;
@@ -37,8 +38,9 @@ export function previewCatalog(csv: string) {
   const issues: Array<{ row: number; message: string }> = [];
   try {
     const [header, ...records] = parse(csv, { bom: true, skip_empty_lines: true, trim: true, relax_column_count: true }) as string[][];
-    if (!header || header.length !== columns.length || columns.some((column, index) => header[index] !== column)) {
-      issues.push({ row: 1, message: `Expected columns: ${columns.join(', ')}` });
+    const categorized = header?.length === columns.length + 1 && header.at(-1) === 'category';
+    if (!header || (!categorized && header.length !== columns.length) || columns.some((column, index) => header[index] !== column)) {
+      issues.push({ row: 1, message: `Expected columns: ${columns.join(', ')} (optional final column: category)` });
     } else if (!records.length || records.length > 500) {
       issues.push({ row: 1, message: 'Provide between 1 and 500 data rows' });
     } else {
@@ -50,7 +52,9 @@ export function previewCatalog(csv: string) {
         const openingStock = stock === '' ? null : whole(stock);
         const details = attributes(variant);
         const problems = [];
-        if (values.length !== columns.length) problems.push('expected six columns');
+        const category = values[6]?.trim() ?? '';
+        if (values.length !== header.length) problems.push('column count must match the header');
+        if (category.length > 80 || category.includes('\0')) problems.push('invalid category');
         if (!sku || sku.length > 80 || skus.has(sku)) problems.push('invalid or duplicate SKU');
         if (!product || product.length > 150) problems.push('invalid product');
         if (!barcode || barcode.length > 80 || barcodes.has(barcode)) problems.push('invalid or duplicate barcode');
@@ -63,7 +67,7 @@ export function previewCatalog(csv: string) {
         }
         skus.add(sku);
         barcodes.add(barcode);
-        rows.push({ sku, product, barcode, priceMinor, openingStock, attributes: details });
+        rows.push({ sku, product, barcode, priceMinor, openingStock, attributes: details, ...(categorized && { category }) });
       });
     }
   } catch {
