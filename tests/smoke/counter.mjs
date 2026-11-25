@@ -188,7 +188,23 @@ async function launch(activate = false) {
                 quantity.focus();
                 quantity.value = '1';
                 quantity.blur();
-                window.checkoutStep = 2;
+                window.checkoutStep = 1.6;
+              }
+              if (next === 1.6 && button('Park sale')) {
+                button('Park sale').click();
+                window.checkoutStep = 1.7;
+              }
+              if (next === 1.7 && checkout.textContent.includes('Sale parked on this register.')) {
+                document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'F4',bubbles:true}));
+                window.checkoutStep = 1.8;
+              }
+              if (next === 1.8 && button('Register')?.getAttribute('aria-current') === 'page') {
+                document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'F1',bubbles:true}));
+                window.checkoutStep = 1.9;
+              }
+              if (next === 1.9 && button('Sell')?.getAttribute('aria-current') === 'page') {
+                const resume = [...checkout.querySelectorAll('button')].find(b => b.textContent.startsWith('Resume 1 lines'));
+                if (resume) { resume.click(); window.checkoutStep = 2; }
               }
               if (next === 2 && complete) {
                 complete.form.elements.tendered.value = '130';

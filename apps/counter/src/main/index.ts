@@ -6,7 +6,7 @@ import { backupCounter, maintenanceReady, recoverReceipts, recoveredReceipt, rec
 import { openCounterDatabase } from './database';
 import { activate, pairing } from './pairing';
 import { cachedCatalog, refreshCatalog } from './catalog';
-import { cashState, clearRejected, closeShift, commitCash, receiptToPrint, startShift, syncCash } from './cash';
+import { cashState, clearRejected, closeShift, commitCash, parkSale, resumeSale, receiptToPrint, startShift, syncCash } from './cash';
 import { printReceipt, printReturn } from './print';
 import { counterReturn, localReturns } from './returns';
 import type { ReturnRequest } from '@era/contracts';
@@ -103,6 +103,8 @@ async function start(): Promise<void> {
     return printReceipt(recoveredReceipt(storage,register,id));
   });
   ipcMain.handle('counter:cash-state', (event) => { counterOnly(event); return cashState(storage); });
+  ipcMain.handle('counter:park-sale',(event,id: string,lines: CashInput['lines']) => { counterOnly(event); return parkSale(storage,id,lines); });
+  ipcMain.handle('counter:resume-sale',(event,id: string) => { counterOnly(event); return resumeSale(storage,id); });
   ipcMain.handle('counter:clear-rejected', (event, id: string) => { counterOnly(event); return clearRejected(storage, id); });
   ipcMain.handle('counter:open-shift', (event, amount: number) => { counterOnly(event); return startShift(storage, amount); });
   ipcMain.handle('counter:close-shift', (event, amount: number) => { counterOnly(event); return closeShift(storage, amount); });
