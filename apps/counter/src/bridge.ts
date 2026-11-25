@@ -12,7 +12,7 @@ export type UpiCheckout = {
 };
 export type CashState = {
   parked: Array<{ id: string; parkedAt: string; items: number }>;
-  queue: Array<{ id: string; status: string; attempts: number; error: string }>;
+  queue: Array<{ id: string; status: string; attempts: number; attemptedAt: string | null; error: string }>;
   shift?: { id: string; openedAt: string };
   receipts: Array<SyncRequestV1<CashReceiptV1> & { status: string }>;
   pending: number;
@@ -43,7 +43,7 @@ export interface CounterBridge {
   openShift(amount: number): Promise<CashState>;
   closeShift(amount: number): Promise<{ expected: number; variance: number }>;
   cashSale(input: CashInput): Promise<string>;
-  syncCash(): Promise<CashState>;
+  syncCash(id?: string): Promise<CashState>;
   clearRejected(id: string): Promise<CashState>;
   printReceipt(id: string): Promise<void>;
   returns(): Promise<Array<{ draft: ReturnRequest; receipt: ReturnReceipt | null }>>;

@@ -41,7 +41,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   }), []);
   useEffect(() => {
     if (!pending) return;
-    const reconnect = () => { void window.counter.syncCash().then(setState).catch(() => undefined); };
+    const reconnect = () => { void window.counter.syncCash().catch(() => window.counter.cashState()).then(setState).catch(() => undefined); };
     const timer = window.setInterval(reconnect, 15_000);
     window.addEventListener('online', reconnect);
     return () => { window.clearInterval(timer); window.removeEventListener('online', reconnect); };
@@ -53,6 +53,8 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     : `${amount} minor units`;
   const items = catalog?.items ?? [];
   const payment = state?.upi;
+  const lastAttempt = state?.queue.map(entry => entry.attemptedAt ?? '').sort().at(-1);
+  const pendingSales = state?.queue.filter(entry=>entry.status === 'pending').length ?? 0;
   useEffect(() => {
     const shortcuts = (event: KeyboardEvent) => {
       if (busy || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
@@ -194,6 +196,9 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   return <section aria-labelledby="checkout-title">
     <header className="counter-heading"><h2 id="checkout-title">{page === 'Sell' ? 'Checkout' : page}</h2>
       <button onClick={() => navigate('Register')}>{state?.shift ? 'Shift open' : 'Shift closed'} · {pending} pending · {state?.rejected ?? 0} need review</button></header>
+    {pendingSales > 0 && <p className="queue-notice" role="status">{pendingSales} {pendingSales === 1 ? 'sale waiting' : 'sales waiting'} to sync.
+      {lastAttempt && ` Last attempt ${new Date(lastAttempt).toLocaleTimeString()}.`}</p>}
+    {!!state?.rejected && <p className="queue-rejected" role="alert">{state.rejected} sales rejected. Review them in Register.</p>}
     <div hidden={page !== 'Sell'}>
     {!state?.shift ? <form ref={shiftForm} onSubmit={(event) => count(event, false)}>
       <label>Opening cash ({currency ?? "minor units"})<input name="amount" type="number" min="0" step={currency ? ".01" : "1"} required defaultValue="0" /></label>
@@ -293,7 +298,11 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     {state && <>
       <div className="panel" hidden={page !== "Register"}><h3>Sync queue</h3><p>{state.pending} pending · {state.rejected} need review</p>
       <ul>{state.queue.map(entry => <li key={entry.id}>
-        {entry.id} · {entry.status} · {entry.attempts} sync attempts {entry.error}
+        {entry.id} · {entry.status} · {entry.attempts} sync attempts {entry.attemptedAt && new Date(entry.attemptedAt).toLocaleString()} {entry.error}
+        <button disabled={busy} onClick={() => void run(async () => {
+          try { await window.counter.syncCash(entry.id); }
+          finally { setState(await window.counter.cashState()); }
+        })}>Retry now</button>
         {entry.status === 'rejected' && <button disabled={busy} onClick={() => void run(async () =>
           setState(await window.counter.clearRejected(entry.id)))}>Clear reviewed rejection</button>}
       </li>)}</ul>

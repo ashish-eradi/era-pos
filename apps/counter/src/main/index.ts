@@ -105,15 +105,23 @@ async function start(): Promise<void> {
   ipcMain.handle('counter:cash-state', (event) => { counterOnly(event); return cashState(storage); });
   ipcMain.handle('counter:park-sale',(event,id: string,lines: CashInput['lines']) => { counterOnly(event); return parkSale(storage,id,lines); });
   ipcMain.handle('counter:resume-sale',(event,id: string) => { counterOnly(event); return resumeSale(storage,id); });
-  ipcMain.handle('counter:clear-rejected', (event, id: string) => { counterOnly(event); return clearRejected(storage, id); });
+  ipcMain.handle('counter:clear-rejected', (event, id: string) => {
+    counterOnly(event);
+    if (syncing) throw new Error('Wait for the current sync attempt to finish');
+    return clearRejected(storage, id);
+  });
   ipcMain.handle('counter:open-shift', (event, amount: number) => { counterOnly(event); return startShift(storage, amount); });
   ipcMain.handle('counter:close-shift', (event, amount: number) => { counterOnly(event); return closeShift(storage, amount); });
   ipcMain.handle('counter:cash-sale', (event, input: CashInput) => { counterOnly(event); return commitCash(storage, input); });
   ipcMain.handle('counter:upi', (event, input?: CashInput) => { counterOnly(event); return upi(storage, input); });
   let syncing: ReturnType<typeof syncCash> | undefined;
-  ipcMain.handle('counter:sync-cash', (event) => {
+  ipcMain.handle('counter:sync-cash', async (event,id?: string) => {
     counterOnly(event);
-    syncing ??= syncCash(storage).finally(() => { syncing = undefined; heartbeat(); });
+    if (id !== undefined) {
+      if (typeof id !== 'string' || !id) throw new Error('Select a queued receipt');
+      while (syncing) await syncing.catch(() => undefined);
+    }
+    syncing ??= syncCash(storage,id).finally(() => { syncing = undefined; heartbeat(); });
     return syncing;
   });
   ipcMain.handle('counter:returns', (event) => { counterOnly(event); return localReturns(storage); });

@@ -33,7 +33,11 @@ async function checkout() {
     const id = await commitCash(db,{ operationId: parkedId, shiftId: shift.id, catalogVersion: catalog.version,
       lines: resumeSale(db,parkedId), discountMinor: 0, tenderedMinor: item.priceMinor });
     assert.deepEqual(cashState(db).parked,[]);
-    const synced = await syncCash(db);
+    const beforeRetry = cashState(db).queue[0];
+    assert.equal(beforeRetry.attemptedAt,null);
+    assert.equal((await syncCash(db,randomUUID())).queue[0].attempts,0);
+    db.prepare("UPDATE cash_outbox SET status='rejected',error='register_forbidden' WHERE id=?").run(id);
+    const synced = await syncCash(db,id);
     assert.equal(synced.receipts.find(sale => sale.operationId === id).status,'synced');
     closeShift(db,item.priceMinor);
     assert.equal((await syncCash(db)).pending,0);

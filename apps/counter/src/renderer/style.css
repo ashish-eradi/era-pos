@@ -26,3 +26,5 @@ small { display:block; color:var(--muted); }
 .setup-grid h2 { font-size:1.25rem; }
 .canvas form>button { margin-top:.7rem; }
 .canvas code { font-size:.86rem; }
+.queue-notice,.queue-rejected { padding:.7rem 1rem; border-radius:.55rem; background:#fff2ce; color:#583900; }
+.queue-rejected {background:#ffe9e7; color:#7d2018;}

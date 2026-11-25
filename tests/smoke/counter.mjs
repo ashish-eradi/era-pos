@@ -282,6 +282,9 @@ async function main() {
     assert.equal(db.prepare('SELECT count(*) AS count FROM cash_receipts').get().count, 1);
     assert.equal(db.prepare('SELECT count(*) AS count FROM cash_outbox').get().count, 1);
     assert.ok(db.prepare('SELECT attempts FROM cash_outbox').get().attempts >= 1);
+    const lastFailure = db.prepare('SELECT attempted_at,error FROM cash_outbox').get();
+    assert.ok(Number.isFinite(Date.parse(lastFailure.attempted_at)));
+    assert.match(lastFailure.error,/503/);
     db.close();
     online = true;
     await launch();
