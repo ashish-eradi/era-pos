@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { request } from '../onboarding';
 
 type Day = {
-  grossMinor:string; provisional:boolean; sales:{receipt:{currency:string}}[];
+  currency:string; grossMinor:string; provisional:boolean; sales:{receipt:{currency:string}}[];
   returns:unknown[]; registers:{id:string; name:string; provisional:boolean}[];
 };
 export function Overview({ path, token, date, sales }: { path:string; token:string; date:string; sales:()=>void }) {
@@ -18,7 +18,7 @@ export function Overview({ path, token, date, sales }: { path:string; token:stri
     }).catch(failure => {if (active) setError(String(failure.message));});
     return () => { active=false; };
   },[path,date,token,refresh]);
-  const currency = day?.sales[0]?.receipt.currency;
+  const currency = day?.currency;
   return <div><div className="section-head"><h3>Trading overview</h3><button onClick={() => setRefresh(n=>n+1)}>Refresh</button></div>
     {error ? <p role="alert">{error}</p> : !day ? <p role="status">Loading business day…</p> : <>
       <div className="metric-grid"><button className="sales-metric" onClick={sales}>Gross sales

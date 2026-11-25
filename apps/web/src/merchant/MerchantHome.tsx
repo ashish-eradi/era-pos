@@ -17,6 +17,7 @@ type Branch = { id: string; name: string; timezone: string; catalogDefaults: str
 type Register = { id: string; branchId: string; name: string; status: string };
 
 export function MerchantHome() {
+  const [menu,setMenu] = useState(false);
   const [section, setSection] = useState("Overview");
   const [session, setSession] = useState<Session>();
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -43,12 +44,12 @@ export function MerchantHome() {
       await refresh(active);
       return '';
     }}><Field name="code" label="Invitation code" type="password" /></Action></div> : <>
-      <aside className="rail"><h2 id="merchant-title">Workspace</h2>
+      <aside className={menu ? "rail expanded" : "rail"}><button className="menu-trigger" aria-expanded={menu} onClick={()=>setMenu(!menu)}>Workspace menu</button><h2 id="merchant-title">Workspace</h2>
       <nav className="tabs" aria-label="Merchant sections">{['Overview', ...(session.role === 'owner' ? ['Catalog'] : []),
         ...(['owner','manager'].includes(session.role) ? ['Inventory','Returns','Team and registers'] : []),
         ...(['owner','manager','accountant'].includes(session.role) ? ['Sales'] : []),
         ...(session.role === 'owner' ? ['Payments','Subscription','Integrations','Support'] : [])].map(name =>
-          <button key={name} aria-current={section === name ? 'page' : undefined} onClick={() => setSection(name)}>{name}</button>)}</nav>
+          <button key={name} aria-current={section === name ? 'page' : undefined} onClick={() => {setSection(name);setMenu(false);}}>{name}</button>)}</nav>
         <button className="quiet" onClick={() => {setSection('Overview');setSession(undefined);setBranches([]);setRegisters([]);setBranchId('');setBusinessDate('');}}>End local session</button>
       </aside><article className="desk"><header className="section-head"><h1>{section}</h1>
       <label>Branch<select value={branch?.id ?? ''} onChange={e=>{setBranchId(e.target.value);setBusinessDate('');}}>

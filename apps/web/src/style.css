@@ -34,3 +34,7 @@ td input {width:100%;} table {font-size:.92rem;}
 .console .tabs {margin:1rem 0;border-bottom:1px solid var(--line);padding-bottom:1rem;}
 .console details {margin:.5rem 0;padding:.5rem 1rem;border:1px solid var(--line);border-radius:.7rem;}
 .access-form>details {margin-bottom:1rem;}
+
+.menu-trigger {display:none;}
+@media(max-width:760px){.menu-trigger {display:block;} .rail:not(.expanded) :is(nav,h2,.quiet){display:none;} .rail.expanded h2 {margin-top:1rem;} }
+.mast a:hover {color:var(--lime);} .mast a[aria-current=page]:hover {color:var(--ink);}

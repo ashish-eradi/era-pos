@@ -7,7 +7,7 @@ type Shift = Row & {
   variance_minor: string; approved_by: string | null; approval_note: string | null;
 };
 type Report = {
-  date: string; provisional: boolean; grossMinor: string; netMinor: string;
+  currency:string; date: string; provisional: boolean; grossMinor: string; netMinor: string;
   registers: Row[]; sales: Row[]; returns: Row[]; shifts: Shift[]; settlements: Row[]; providerRefunds: Row[];
 };
 
@@ -38,6 +38,8 @@ function download(report: Report) {
 
 export function DailyClose({ path, token, timezone, canApprove, initialDate }: { path: string; token: string; timezone: string; initialDate?: string; canApprove: boolean }) {
   const [report, setReport] = useState<Report>();
+  const [register,setRegister] = useState('');
+  const money = (value:unknown) => report && new Intl.NumberFormat(undefined,{style:'currency',currency:report.currency}).format(Number(value)/100);
   const totals = new Map<string, number>();
   for (const register of report?.registers ?? []) totals.set(String(register.id),0);
   for (const sale of report?.sales ?? []) {
@@ -54,16 +56,21 @@ export function DailyClose({ path, token, timezone, canApprove, initialDate }: {
     </Action>
     {report && <>
       <p>{report.date} · {report.provisional ? 'Provisional. Register sync is stale or has queued records.' : 'Connected registers are up to date.'}</p>
-      <p>Register sales {report.grossMinor} · Net after returns and exchanges {report.netMinor} (minor units)</p>
+      <p>Register sales {money(report.grossMinor)} · Net after returns and exchanges {money(report.netMinor)}</p>
       <p>{report.sales.length} sales · {report.returns.length} returns · {report.settlements.length} matched settlement entries</p>
-      <figure><figcaption>Gross sales per register (minor units)</figcaption>
+      <figure><figcaption>Gross sales per register</figcaption>
         {[...totals].map(([id,total]) => <p key={id}>{String(report.registers.find(r => r.id === id)?.name ?? id)}{' '}
-          <meter value={total} max={max} aria-label={`Sales for register ${id}`} /> {total}</p>)}
+          <meter value={total} max={max} aria-label={`Sales for register ${id}`} /> <button onClick={()=>setRegister(id)}>{money(total)}</button></p>)}
       </figure>
+      <label>Receipt register<select value={register} onChange={e=>setRegister(e.target.value)}><option value="">All registers</option>
+        {[...totals.keys()].map(id=><option key={id} value={id}>{String(report.registers.find(r=>r.id===id)?.name ?? id)}</option>)}</select></label>
+      <table><thead><tr><th>Receipt</th><th>Gross sale</th></tr></thead><tbody>
+        {report.sales.filter(s=>!register || s.register_id === register).map(s=><tr key={String(s.id)}><td>{String(s.id)}</td>
+        <td>{money((s.receipt as {totalMinor:number}).totalMinor)}</td></tr>)}</tbody></table>
       <button type="button" onClick={() => download(report)}>Download branch CSV</button>
       {report.shifts.map((shift) => <details key={`${shift.register_id}-${shift.id}`}>
-        <summary>{new Date(shift.closed_at).toLocaleString()} · Variance {shift.variance_minor}</summary>
-        <p>Register {shift.register_id} · Counted {shift.counted_minor} · Expected {shift.expected_minor}</p>
+        <summary>{new Date(shift.closed_at).toLocaleString()} · Variance {money(shift.variance_minor)}</summary>
+        <p>Register {shift.register_id} · Counted {money(shift.counted_minor)} · Expected {money(shift.expected_minor)}</p>
         {shift.approved_by && <p>Approved by {shift.approved_by} · {shift.approval_note}</p>}
         {canApprove && shift.variance_minor !== '0' && !shift.approved_by && <Action title="Approve cash variance" run={async (form) => {
           await request(`${path}/closes/${shift.register_id}/${shift.id}/approve`,token,values(form));
