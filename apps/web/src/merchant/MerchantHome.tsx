@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { Action, Field, request, values } from '../onboarding';
+import { useEffect, useState } from 'react';
+import { Action, ApiError, Field, request, values } from '../onboarding';
+import { useMerchantData } from './useMerchantData';
+import type { StockAlert } from './Overview';
 import { CatalogImport } from './CatalogImport';
 import { CashSales } from './CashSales';
 import { Subscription } from './Subscription';
@@ -16,33 +18,70 @@ import { Signup } from './Signup';
 type Session = { merchantId: string; role: string; token: string };
 type Branch = { id: string; name: string; timezone: string; catalogDefaults: string[] };
 type Register = { id: string; branchId: string; name: string; status: string };
+const sessionKey = 'era.merchant.session';
+function savedSession(): Session | undefined {
+  try {
+    const value = JSON.parse(localStorage.getItem(sessionKey) ?? 'null');
+    if (value && typeof value.token === 'string' && typeof value.merchantId === 'string' &&
+      ['owner','manager','cashier','accountant'].includes(value.role)) return value;
+  } catch { /* Storage may be unavailable in private browsing. */ }
+}
 
 export function MerchantHome() {
   const [menu,setMenu] = useState(false);
-  const [section, setSection] = useState("Overview");
-  const [session, setSession] = useState<Session>();
+  const [session, setSession] = useState(savedSession);
+  const [section, setSection] = useState(session?.role === 'accountant' ? 'Sales' : 'Overview');
+  const [failure,setFailure] = useState('');
+  const [stockRevision,refreshStock] = useState(0);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [registers, setRegisters] = useState<Register[]>([]);
   const [branchId,setBranchId] = useState("");
   const [businessDate,setBusinessDate] = useState("");
   const branch = branches.find(item => item.id === branchId) ?? branches[0];
-  const date = businessDate || new Intl.DateTimeFormat("sv-SE",{timeZone:branch?.timezone}).format(new Date());
-  async function refresh(active: Session) {
+  const date = new Intl.DateTimeFormat("sv-SE",{timeZone:branch?.timezone}).format(new Date());
+  const stockPath = branch && session && ['owner','manager'].includes(session.role)
+    ? `merchants/${session.merchantId}/branches/${branch.id}/inventory/alerts` : '';
+  const stock = useMerchantData<StockAlert[]>(stockPath,session?.token ?? '',stockRevision,30000);
+  async function loadWorkspace(active: Session) {
     const path = `merchants/${active.merchantId}`;
     const [stores, counters] = await Promise.all([
       request<Branch[]>(`${path}/branches`, active.token),
       active.role === 'owner' ? request<Register[]>(`${path}/onboarding-registers`, active.token) : Promise.resolve([]),
     ]);
-    setBranches(stores);
-    setRegisters(counters);
+    return {stores,counters};
+  }
+  async function refresh(active: Session) {
+    const {stores,counters} = await loadWorkspace(active);
+    setBranches(stores); setRegisters(counters); setFailure('');
+  }
+  useEffect(() => {
+    try {
+      if (session) localStorage.setItem(sessionKey,JSON.stringify(session));
+      else localStorage.removeItem(sessionKey);
+    } catch { /* The current tab can still use its in-memory session. */ }
+    if (!session) return;
+    let active = true;
+    void loadWorkspace(session).then(({stores,counters})=>{
+      if (active) { setBranches(stores); setRegisters(counters); setFailure(''); }
+    }).catch(error=>{
+      if (!active) return;
+      if (error instanceof ApiError && error.status === 401) {
+        setSession(undefined); setBranches([]); setRegisters([]); setBranchId('');
+      }
+      setFailure(String(error.message));
+    });
+    return () => { active=false; };
+  },[session]);
+  async function enter(active: Session) {
+    setSection(active.role === 'accountant' ? 'Sales' : 'Overview');
+    setFailure(''); setSession(active);
   }
   return <section className={session ? "merchant-shell" : "access-shell"} aria-labelledby="merchant-title">
     {!session && <div className="access-cover"><div className="store-art" aria-hidden="true"><i/><b/><em/></div><h2 id="merchant-title">Merchant<br/>workspace</h2></div>}
-    {!session ? <div className="access-form"><Signup enter={async active => { setSession(active); await refresh(active); }} /><Action title="Accept invitation" run={async (form) => {
+    {failure && <p role="alert">{failure}</p>}
+    {!session ? <div className="access-form"><Signup enter={enter} /><Action title="Accept invitation" run={async (form) => {
       const active = await request<Session>('invitations/accept', '', { code: values(form).code.trim() });
-      setSection(active.role === "accountant" ? "Sales" : "Overview");
-      setSession(active);
-      await refresh(active);
+      await enter(active);
       return '';
     }}><Field name="code" label="Invitation code" type="password" /></Action></div> : <>
       <aside className={menu ? "rail expanded" : "rail"}><button className="menu-trigger" aria-expanded={menu} onClick={()=>setMenu(!menu)}>Workspace menu</button><h2 id="merchant-title">Workspace</h2>
@@ -50,18 +89,17 @@ export function MerchantHome() {
         ...(['owner','manager'].includes(session.role) ? ['Inventory','Returns','Team and registers'] : []),
         ...(['owner','manager','accountant'].includes(session.role) ? ['Sales'] : []),
         ...(session.role === 'owner' ? ['Receipt settings','Payments','Subscription','Integrations','Support'] : [])].map(name =>
-          <button key={name} aria-current={section === name ? 'page' : undefined} onClick={() => {setSection(name);setMenu(false);}}>{name}</button>)}</nav>
+          <button key={name} aria-current={section === name ? 'page' : undefined} onClick={() => {setSection(name);setMenu(false);}}>{name}{name === 'Inventory' && !!stock.data?.length && <span className="stock-count" aria-label={`${stock.data.length} low-stock items`}>{stock.data.length}</span>}</button>)}</nav>
         <button className="quiet" onClick={() => {setSection('Overview');setSession(undefined);setBranches([]);setRegisters([]);setBranchId('');setBusinessDate('');}}>End local session</button>
       </aside><article className="desk"><header className="section-head"><h1>{section}</h1>
       <label>Branch<select value={branch?.id ?? ''} onChange={e=>{setBranchId(e.target.value);setBusinessDate('');}}>
       {branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label></header>
       {section === 'Overview' && branch && (session.role === 'cashier' ? <p>Use your paired counter to open a shift and sell in {branch.name}.</p> : <>
-        <label className="date-control">Business date<input type="date" value={date} onChange={e=>setBusinessDate(e.target.value)} /></label>
-        <Overview date={date} path={`merchants/${session.merchantId}/branches/${branch.id}`} token={session.token} sales={()=>setSection('Sales')} /></>)}
+        <Overview key={branch.id} date={date} path={`merchants/${session.merchantId}/branches/${branch.id}`} token={session.token} stock={stock.data} stockError={stock.error} sales={day=>{setBusinessDate(day);setSection('Sales');}} /></>)}
       {!branches.length && <Action title="Refresh branches" run={async()=>{await refresh(session);return '';}}/>}
       {section === 'Receipt settings' && session.role === 'owner' && <ReceiptSettings key={session.merchantId} path={`merchants/${session.merchantId}/receipt-settings`} token={session.token}/>}
       {section === 'Subscription' && session.role === 'owner' && <Subscription path={`merchants/${session.merchantId}`} token={session.token} />}
-      {section === 'Sales' && session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}`} token={session.token} />}
+      {section === 'Sales' && branch && session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}/cash-sales?branch=${encodeURIComponent(branch.id)}`} token={session.token} />}
       {section === 'Support' && session.role === 'owner' && <SupportTickets merchantId={session.merchantId} token={session.token} />}
       {section === 'Integrations' && session.role === 'owner' && <>
         <Action title="Register sales webhook" run={async form => {
@@ -81,8 +119,8 @@ export function MerchantHome() {
             <BranchShifts path={`${path}/branches/${branch.id}/branch-shifts`} token={session.token} />}
           <p>{branch.timezone}{branch.catalogDefaults.length > 0 && ` · Suggested catalog attributes: ${branch.catalogDefaults.join(', ')}`}</p>
           {['owner','manager','accountant'].includes(session.role) && section === 'Sales' && <DailyClose path={`${path}/branches/${branch.id}`}
-            initialDate={date} token={session.token} timezone={branch.timezone} canApprove={session.role !== 'accountant'} />}
-          {['owner','manager'].includes(session.role) && section === 'Inventory' && <Inventory path={`${path}/branches/${branch.id}/inventory`} token={session.token} />}
+            initialDate={businessDate || date} token={session.token} timezone={branch.timezone} canApprove={session.role !== 'accountant'} />}
+          {['owner','manager'].includes(session.role) && section === 'Inventory' && <Inventory path={`${path}/branches/${branch.id}/inventory`} token={session.token} changed={()=>refreshStock(n=>n+1)} />}
           {['owner', 'manager'].includes(session.role) && section === 'Returns' && <ReturnApprovals path={`${path}/branches/${branch.id}/returns`} token={session.token} />}
           {section === 'Catalog' && session.role === 'owner' && <CatalogImport path={`${path}/branches/${branch.id}/catalog`} token={session.token} />}
           {section === 'Team and registers' && session.role === 'owner' && <>

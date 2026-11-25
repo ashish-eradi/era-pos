@@ -1,7 +1,7 @@
 import { parseInput, saleInput } from '../onboarding/device-input';
 import { randomUUID } from 'node:crypto';
 import {
-  BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Headers, Inject, NotFoundException, Param, Post,
+  BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Headers, Inject, NotFoundException, Param, Post, Query,
 } from '@nestjs/common';
 import { cashAmount, cashSubtotal, isCashReceiptV1 } from '@era/contracts';
 import type { SyncAcknowledgementV1 } from '@era/contracts';
@@ -133,15 +133,15 @@ export class CashController {
   }
 
   @Get('merchants/:merchantId/cash-sales')
-  sales(@Param('merchantId') merchant: string, @Headers('authorization') authorization?: string) {
+  sales(@Param('merchantId') merchant: string, @Headers('authorization') authorization?: string, @Query('branch') branch?: string) {
     return transaction(this.database, async (client) => {
       await owner(client, merchant, authorization);
       const { rows } = await client.query(`
         SELECT s.operation_id AS id, s.register_id AS "registerId", b.name AS branch,
           s.occurred_at AS "occurredAt", s.receipt
         FROM cash_sales s JOIN branches b ON (b.merchant_id,b.id) = (s.merchant_id,s.branch_id)
-        WHERE s.merchant_id = $1 ORDER BY s.occurred_at DESC, s.operation_id LIMIT 100
-      `, [merchant]);
+          WHERE s.merchant_id = $1 AND ($2::text IS NULL OR s.branch_id=$2) ORDER BY s.occurred_at DESC, s.operation_id LIMIT 100
+        `, [merchant,branch ?? null]);
       return rows;
     });
   }

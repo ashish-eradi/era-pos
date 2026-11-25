@@ -38,3 +38,9 @@ td input {width:100%;} table {font-size:.92rem;}
 .menu-trigger {display:none;}
 @media(max-width:760px){.menu-trigger {display:block;} .rail:not(.expanded) :is(nav,h2,.quiet){display:none;} .rail.expanded h2 {margin-top:1rem;} }
 .mast a:hover {color:var(--lime);} .mast a[aria-current=page]:hover {color:var(--ink);}
+.report-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,19rem),1fr));gap:1rem;margin:1rem 0}
+.sales-chart {height:13rem;position:relative}
+.hour-grid {display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.2rem}
+.hour-grid div {display:grid;text-align:center;padding:.3rem 0;border-radius:.3rem}
+.report-grid td small {display:block;color:var(--muted)}
+.stock-count {display:inline-block;margin-left:.5rem;border-radius:1rem;padding:0 .5rem;background:#f1d299;color:#392700}

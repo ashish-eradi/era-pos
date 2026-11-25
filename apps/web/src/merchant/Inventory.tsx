@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
+import { useMerchantData } from './useMerchantData';
 
 type InventoryState = {
-  items: { sku: string; product: string; onHand: number; damaged: number }[];
+  items: { sku: string; product: string; onHand: number; damaged: number; threshold:number|null }[];
   documents: {
     id: string; kind: 'delivery' | 'count'; reference: string;
     lines: { sku: string; quantity: number; onHand?: number }[];
@@ -10,15 +11,22 @@ type InventoryState = {
   }[];
 };
 
-export function Inventory({ path, token }: { path: string; token: string }) {
-  const [state, setState] = useState<InventoryState>();
-  async function load() { setState(await request<InventoryState>(path,token)); }
+export function Inventory({ path, token, changed }: { path: string; token: string; changed:()=>void }) {
+  const [revision,setRevision] = useState(0);
+  const {data:state,error} = useMerchantData<InventoryState>(path,token,revision);
+  function load() { setRevision(n=>n+1); changed(); }
   return <section>
     <h4>Branch inventory</h4>
-    <Action title="Load inventory" run={async () => { await load(); return ''; }} />
+    {error ? <p role="alert">{error}</p> : !state && <p role="status">Loading inventory…</p>}
     {state && <table>
-      <thead><tr><th>SKU</th><th>Product</th><th>Sellable</th><th>Damaged</th></tr></thead>
-      <tbody>{state.items.map((item) => <tr key={item.sku}><td>{item.sku}</td><td>{item.product}</td><td>{item.onHand}</td><td>{item.damaged}</td></tr>)}</tbody>
+      <thead><tr><th>SKU</th><th>Product</th><th>Sellable</th><th>Damaged</th><th>Low-stock threshold</th></tr></thead>
+      <tbody>{state.items.map((item) => <tr key={item.sku}><td>{item.sku}</td><td>{item.product}</td><td>{item.onHand}</td><td>{item.damaged}</td><td>
+        <Action title="Save threshold" run={async form=>{
+          const value=form.get('threshold');
+          await request(`${path}/threshold`,token,{sku:item.sku,threshold:value === '' ? null : Number(value)});
+          load(); return 'Saved';
+        }}><input name="threshold" type="number" min="0" max="1000000000" defaultValue={item.threshold ?? ''} placeholder="Off" aria-label={`Low-stock threshold for ${item.sku}`}/></Action>
+      </td></tr>)}</tbody>
     </table>}
     {state && <Action title="Record inventory document" run={async (form) => {
       const data = values(form);

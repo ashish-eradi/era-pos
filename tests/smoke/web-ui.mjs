@@ -15,6 +15,8 @@ async function main() {
     if (path.startsWith('/v1/')) {
       const result = path.endsWith('invitations/accept') ? {merchantId:'demo',role:'owner',token:'test'} :
         path.endsWith('/branches') ? ['Central','West'].map(id=>({id,name:id,timezone:'UTC',catalogDefaults:[]})) :
+        path.endsWith('/dashboard') ? {currency:'INR',returns:0,products:[],categories:[],buckets:[],
+          registers:[{id:'A',name:'Till A',provisional:false}]} :
         path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map((sku,i)=>({sku,product:sku,barcode:'001'+i,priceMinor:500})) :
         path.endsWith('/daily-close') ? {currency:'INR',grossMinor:'12500',netMinor:'12500',date:'2026-11-24',
           provisional:false,sales:[{id:'receipt-1',register_id:'A',receipt:{currency:'INR',totalMinor:12500}}],
@@ -51,12 +53,12 @@ async function main() {
     }
     await run(`const code = document.querySelector('input[name=code][type=password]'); code.value='test'; code.form.requestSubmit()`);
     await waitFor("document.body.innerText.includes('Till A')");
+    await win.loadURL(`http://127.0.0.1:${server.address().port}`);
+    await waitFor("document.body.innerText.includes('Till A') && document.querySelector('canvas')");
     await run("const branch=document.querySelector('.desk select');branch.value='West';branch.dispatchEvent(new Event('change',{bubbles:true}))");
     await waitFor("document.querySelector('.desk select').value === 'West'");
     await waitFor("!!document.querySelector('.sales-metric')");
     await run("document.querySelector('.sales-metric').click()");
-    await waitFor("document.body.innerText.includes('Load business day')");
-    await run("document.querySelector('input[type=date]').form.requestSubmit()");
     await waitFor("document.body.innerText.includes('receipt-1')");
     await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Catalog').click()");
     await waitFor("document.querySelectorAll('.desk tbody tr').length===2");

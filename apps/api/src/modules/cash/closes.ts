@@ -1,5 +1,6 @@
 import { BadRequestException, Body, ConflictException, Controller, Get, Headers, Inject, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { cashAmount } from '@era/contracts';
+import { dashboard, validateRange } from './dashboard';
 import type { Pool, PoolClient } from 'pg';
 import { branchActor, deviceScope } from '../merchant/branch-access';
 import { MERCHANT_DATABASE } from '../merchant/merchant.controller';
@@ -83,6 +84,17 @@ export class ClosesController {
       `, [merchant,branch,register,id,actor,reason]);
       if (!result.rowCount) throw new NotFoundException('Shift variance not found');
       return { id, approved: true };
+    });
+  }
+
+  @Get('merchants/:merchantId/branches/:branchId/dashboard')
+  overview(@Param('merchantId') merchant: string, @Param('branchId') branch: string,
+    @Query('start') start: string, @Query('end') end: string, @Headers('authorization') authorization?: string) {
+    validateRange(start,end);
+    return transaction(this.database, async client => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+      await branchActor(client,merchant,branch,readers,authorization);
+      return dashboard(client,merchant,branch,start,end);
     });
   }
 

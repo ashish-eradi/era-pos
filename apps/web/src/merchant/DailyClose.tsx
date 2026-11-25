@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
+import { useMerchantData } from './useMerchantData';
 
 type Row = Record<string, unknown>;
 type Shift = Row & {
@@ -37,7 +38,10 @@ function download(report: Report) {
 }
 
 export function DailyClose({ path, token, timezone, canApprove, initialDate }: { path: string; token: string; timezone: string; initialDate?: string; canApprove: boolean }) {
-  const [report, setReport] = useState<Report>();
+  const today = new Intl.DateTimeFormat('sv-SE',{timeZone:timezone}).format(new Date());
+  const [selected,setSelected] = useState(initialDate ?? today);
+  const [revision,refresh] = useState(0);
+  const {data:report,error} = useMerchantData<Report>(selected ? `${path}/daily-close?date=${encodeURIComponent(selected)}` : '',token,revision);
   const [register,setRegister] = useState('');
   const money = (value:unknown) => report && new Intl.NumberFormat(undefined,{style:'currency',currency:report.currency}).format(Number(value)/100);
   const totals = new Map<string, number>();
@@ -47,13 +51,10 @@ export function DailyClose({ path, token, timezone, canApprove, initialDate }: {
     totals.set(id, (totals.get(id) ?? 0) + Number((sale.receipt as { totalMinor: number }).totalMinor));
   }
   const max = Math.max(1,...totals.values());
-  const today = new Intl.DateTimeFormat('sv-SE',{ timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  async function load(date: string) { setReport(await request<Report>(`${path}/daily-close?date=${encodeURIComponent(date)}`,token)); }
   return <section>
     <h4>Daily close and accountant export</h4>
-    <Action title="Load business day" run={async (form) => { await load(values(form).date); return ''; }}>
-      <Field name="date" label="Branch business date" type="date" initial={initialDate ?? today} />
-    </Action>
+    <label>Branch business date<input type="date" value={selected} onChange={e=>{setSelected(e.target.value);setRegister('');}}/></label>
+    {error ? <p role="alert">{error}</p> : selected && !report && <p role="status">Loading daily close…</p>}
     {report && <>
       <p>{report.date} · {report.provisional ? 'Provisional. Register sync is stale or has queued records.' : 'Connected registers are up to date.'}</p>
       <p>Register sales {money(report.grossMinor)} · Net after returns and exchanges {money(report.netMinor)}</p>
@@ -74,7 +75,7 @@ export function DailyClose({ path, token, timezone, canApprove, initialDate }: {
         {shift.approved_by && <p>Approved by {shift.approved_by} · {shift.approval_note}</p>}
         {canApprove && shift.variance_minor !== '0' && !shift.approved_by && <Action title="Approve cash variance" run={async (form) => {
           await request(`${path}/closes/${shift.register_id}/${shift.id}/approve`,token,values(form));
-          await load(report.date);
+          refresh(n=>n+1);
           return 'Variance approved';
         }}><Field name="reason" label="Reason for variance" /></Action>}
       </details>)}
