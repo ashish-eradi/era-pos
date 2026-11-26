@@ -1,9 +1,12 @@
+import { units, validQuantity, type Unit } from '@era/contracts';
 import { parse } from 'csv-parse/sync';
 import { digest } from '../onboarding/shared';
 
 const columns = ['sku', 'product', 'barcode', 'price_minor', 'opening_stock', 'attributes'];
 
 export interface CatalogRow {
+  unit?:Unit;
+  allowDecimal?:boolean;
   category?: string;
   mrpMinor?: number | null;
   sku: string;
@@ -42,8 +45,8 @@ export function previewCatalog(csv: string) {
     const extra = header?.slice(columns.length) ?? [];
     const categorized = extra.includes('category');
     const withMrp = extra.includes('mrp_minor');
-    if (!header || extra.some(key=>!['category','mrp_minor'].includes(key)) || new Set(extra).size!==extra.length || columns.some((column, index) => header[index] !== column)) {
-      issues.push({ row: 1, message: `Expected columns: ${columns.join(', ')} (optional trailing columns: category, mrp_minor)` });
+    if (!header || extra.some(key=>!['category','mrp_minor','unit','allow_decimal'].includes(key)) || new Set(extra).size!==extra.length || columns.some((column, index) => header[index] !== column)) {
+      issues.push({ row: 1, message: `Expected columns: ${columns.join(', ')} (optional trailing columns: category, mrp_minor, unit, allow_decimal)` });
     } else if (!records.length || records.length > 500) {
       issues.push({ row: 1, message: 'Provide between 1 and 500 data rows' });
     } else {
@@ -52,9 +55,13 @@ export function previewCatalog(csv: string) {
       records.forEach((values, index) => {
         const [sku, product, barcode, price, stock, variant] = values;
         const priceMinor = whole(price);
-        const openingStock = stock === '' ? null : whole(stock);
+        const unit=values[header.indexOf('unit')] as Unit|undefined;
+        const decimal=values[header.indexOf('allow_decimal')];
+        const openingStock = stock === '' ? null : /^\d+(?:\.\d{1,3})?$/.test(stock) && (Number(stock)===0 || validQuantity(Number(stock),decimal==='true')) && Number(stock)<=1e9 ? Number(stock) : undefined;
         const details = attributes(variant);
         const problems = [];
+        if (unit && !units.includes(unit)) problems.push('Select pcs, kg, g, L or ml');
+        if (decimal && !['true','false'].includes(decimal)) problems.push('allow_decimal must be true or false');
         const category = values[header.indexOf('category')]?.trim() ?? '';
         const mrp = values[header.indexOf('mrp_minor')];
         const mrpMinor = mrp ? whole(mrp) : null;
@@ -65,7 +72,7 @@ export function previewCatalog(csv: string) {
         if (!product || product.length > 150) problems.push('invalid product');
         if (!barcode || barcode.length > 80 || barcodes.has(barcode)) problems.push('invalid or duplicate barcode');
         if (priceMinor === undefined) problems.push('price must be a whole number of minor units');
-        if (openingStock === undefined) problems.push('opening stock must be blank or a whole number');
+        if (openingStock === undefined) problems.push('opening stock must match the SKU quantity precision');
         if (!details) problems.push('attributes must be a JSON object of text values');
         if (problems.length || priceMinor === undefined || openingStock === undefined || !details) {
           issues.push({ row: index + 2, message: problems.join('; ') });
@@ -73,7 +80,7 @@ export function previewCatalog(csv: string) {
         }
         skus.add(sku);
         barcodes.add(barcode);
-        rows.push({ sku, product, barcode, priceMinor, openingStock, attributes: details, ...(categorized && { category }), ...(withMrp && {mrpMinor}) });
+        rows.push({ sku, product, barcode, priceMinor, openingStock, attributes: details, ...(categorized && { category }), ...(withMrp && {mrpMinor}), ...(unit && {unit}), ...(decimal && {allowDecimal:decimal==='true'}) });
       });
     }
   } catch {

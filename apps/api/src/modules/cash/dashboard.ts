@@ -28,8 +28,8 @@ export async function dashboard(client: PoolClient, merchant: string, branch: st
       UNION ALL SELECT 'cash',0,(receipt->>'cashPortionMinor')::bigint WHERE receipt ? 'cashPortionMinor'
     ) parts GROUP BY 1,2,3 ORDER BY 1,2,3`,scope);
   const lines = `${sales}, lines AS (
-    SELECT line->>'sku' AS sku, line->>'product' AS product, (line->>'quantity')::int AS qty,
-      (line->>'unitMinor')::bigint * (line->>'quantity')::int AS amount FROM sales
+    SELECT line->>'sku' AS sku, line->>'product' AS product, (line->>'quantity')::numeric AS qty,
+      round((line->>'unitMinor')::numeric * (line->>'quantity')::numeric)::bigint AS amount FROM sales
     CROSS JOIN LATERAL jsonb_array_elements(receipt->'lines') line
   )`;
   const products = await client.query(`${lines}

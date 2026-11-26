@@ -9,7 +9,7 @@ export function receiptText(receipt:CashReceiptV1,id:string,date:Date,register:s
     receipt.receiptGstin && 'GSTIN '+receipt.receiptGstin,receipt.invoiceNumber && 'Invoice '+receipt.invoiceNumber,
     receipt.placeOfSupply && 'Place of supply '+receipt.placeOfSupply,date.toISOString(),'Receipt '+id,'Register '+register];
   for (const [i,line] of receipt.lines.entries()) {
-    parts.push(line.quantity+' × '+line.product+' @ '+money(line.unitMinor)+' = '+money(breakdown[i].payable));
+    parts.push(line.quantity+(line.unit?' '+line.unit:'')+' × '+line.product+' @ '+money(line.unitMinor)+' = '+money(breakdown[i].payable));
     if(line.mrpMinor!=null) parts.push('MRP '+money(line.mrpMinor)+' each');
     for (const m of line.modifiers ?? []) parts.push(m.name+' +'+money(m.priceMinor)+' each');
     if (line.gst) parts.push('HSN '+line.gst.hsn+' · GST '+line.gst.rate+'% · Taxable '+money(breakdown[i].taxable)+' · '+

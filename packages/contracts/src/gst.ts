@@ -1,3 +1,4 @@
+import { lineAmount } from './quantity';
 import type { CashLineV1 } from './cash';
 import type { CatalogSnapshotV1 } from './index';
 
@@ -32,20 +33,21 @@ export function catalogLine(item:CatalogSnapshotV1['items'][number],quantity:num
   const modifiers = item.modifiers?.filter(option => selected.includes(option.name)) ?? [];
   if (modifiers.length !== selected.length) throw new Error('An item modifier has changed. Review the cart.');
   return {sku:item.sku,product:item.product,quantity,unitMinor:item.priceMinor + modifiers.reduce((sum,m)=>sum+m.priceMinor,0),
+    ...(item.unit && item.unit!=='pcs' && {unit:item.unit}), ...(item.allowDecimal && {allowDecimal:true}),
     ...(typeof item.mrpMinor==='number' && {mrpMinor:item.mrpMinor}),
     ...(modifiers.length > 0 && {modifiers}),
     ...(typeof rate === 'number' && {gst:{rate,inclusive:catalog.gstInclusive ?? true,hsn:item.hsn ?? ''}})};
 }
 
 export function saleTotals(lines:CashLineV1[],discountMinor:number) {
-  const subtotal = lines.reduce((sum,l)=>sum+l.unitMinor*l.quantity,0);
+  const subtotal = lines.reduce((sum,l)=>sum+lineAmount(l.unitMinor,l.quantity),0);
   if (!Number.isSafeInteger(subtotal) || !Number.isSafeInteger(discountMinor)) throw new Error('Invalid monetary amount');
   let cumulative = 0;
   let allocated = 0;
   let tax = 0;
   let total = 0;
   const breakdown = lines.map(line=>{
-    const amount = line.unitMinor*line.quantity;
+    const amount = lineAmount(line.unitMinor,line.quantity);
     cumulative += amount;
     const share = subtotal ? Number(BigInt(discountMinor)*BigInt(cumulative)/BigInt(subtotal)) : 0;
     const discount = share-allocated;
@@ -61,6 +63,6 @@ export function saleTotals(lines:CashLineV1[],discountMinor:number) {
     return {discount,tax:lineTax,taxable:payable-lineTax,payable};
   });
   const savings = lines.reduce((sum,line,i)=>sum+(line.mrpMinor == null ? 0 :
-    Math.max(0,line.mrpMinor*line.quantity-breakdown[i].payable)),0);
+    Math.max(0,lineAmount(line.mrpMinor,line.quantity)-breakdown[i].payable)),0);
   return {subtotal,tax,total,breakdown,savings};
 }

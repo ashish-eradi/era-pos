@@ -1,6 +1,7 @@
+import { lineAmount } from '@era/contracts';
 import { Action, Field, request } from '../onboarding';
 
-type Product = {sku:string; product:string};
+type Product = {sku:string; product:string; allowDecimal?:boolean};
 export type PurchaseOrder = {
   id:string; reference:string; supplier:string; created_at:string; currency:string;
   status:'open'|'partial'|'received'|'cancelled';
@@ -14,8 +15,8 @@ function downloadOrder(order:PurchaseOrder, branchName:string) {
   const content = [
     'Purchase order '+order.reference, 'Branch: '+branchName, 'Supplier: '+order.supplier,
     'Issued: '+order.created_at, 'Currency: '+order.currency, '',
-    ...order.lines.map(line=>line.sku+' · '+line.product+' · '+line.quantity+' × '+money(line.unitCostMinor)+' = '+money(line.quantity*line.unitCostMinor)),
-    '', 'Order total: '+money(order.lines.reduce((sum,line)=>sum+line.quantity*line.unitCostMinor,0)),
+    ...order.lines.map(line=>line.sku+' · '+line.product+' · '+line.quantity+' × '+money(line.unitCostMinor)+' = '+money(lineAmount(line.unitCostMinor,line.quantity))),
+    '', 'Order total: '+money(order.lines.reduce((sum,line)=>sum+lineAmount(line.unitCostMinor,line.quantity),0)),
   ].join('\r\n');
   const link = document.createElement('a');
   const url = URL.createObjectURL(new Blob([content],{type:'text/plain;charset=utf-8'}));
@@ -42,7 +43,7 @@ export function PurchaseOrders({branchPath,branchName,token,items,orders,changed
       <Field name="reference" label="Purchase order reference"/><Field name="supplier" label="Supplier name"/>
       <table><thead><tr><th>Item</th><th>Quantity</th><th>Unit cost (minor units)</th></tr></thead><tbody>{items.map((item,i)=><tr key={item.sku}>
         <td>{item.product} ({item.sku})</td>
-        <td><input aria-label={'Order quantity for '+item.sku} type="number" name={'ordered-'+i} min="1" max="1000000" step="1"/></td>
+        <td><input aria-label={'Order quantity for '+item.sku} type="number" name={'ordered-'+i} min={item.allowDecimal?0.001:1} max="1000000" step={item.allowDecimal?0.001:1}/></td>
         <td><input aria-label={'Unit cost for '+item.sku} type="number" name={'cost-'+i} min="0" max="1000000000" step="1"/></td>
       </tr>)}</tbody></table>
     </Action></details>}
@@ -55,7 +56,7 @@ export function PurchaseOrders({branchPath,branchName,token,items,orders,changed
         <table><thead><tr><th>Item</th><th>Unit cost</th><th>Ordered</th><th>Received</th></tr></thead>
           <tbody>{order.lines.map(line=><tr key={line.sku}><td>{line.product} ({line.sku})</td><td>{money(line.unitCostMinor)}</td>
             <td>{line.quantity}</td><td>{line.received}</td></tr>)}</tbody></table>
-        <p>Order total {money(order.lines.reduce((sum,line)=>sum+line.quantity*line.unitCostMinor,0))}</p>
+        <p>Order total {money(order.lines.reduce((sum,line)=>sum+lineAmount(line.unitCostMinor,line.quantity),0))}</p>
         <button type="button" onClick={()=>downloadOrder(order,branchName)}>Download purchase order</button>
         {open && <><Action key={JSON.stringify(order.lines)} title="Receive against order" run={async form=>{
           const lines = remaining.flatMap((line,i)=>{
@@ -67,8 +68,8 @@ export function PurchaseOrders({branchPath,branchName,token,items,orders,changed
           changed(); return 'Delivery recorded.';
         }}>
           <Field name="reference" label="Supplier delivery reference"/>
-          {remaining.map((line,i)=><label key={line.sku}>{line.sku} · {line.quantity-line.received} outstanding
-            <input type="number" name={'received-'+i} min="1" max={line.quantity-line.received} step="1"/>
+          {remaining.map((line,i)=><label key={line.sku}>{line.sku} · {Math.round((line.quantity-line.received)*1000)/1000} outstanding
+            <input type="number" name={'received-'+i} min={line.allowDecimal?0.001:1} max={Math.round((line.quantity-line.received)*1000)/1000} step={line.allowDecimal?0.001:1}/>
           </label>)}
         </Action>
           <Action title="Cancel outstanding quantities" run={async()=>{

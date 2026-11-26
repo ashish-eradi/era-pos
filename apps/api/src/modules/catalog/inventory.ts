@@ -1,3 +1,4 @@
+import { validQuantity } from '@era/contracts';
 import { inventory, moveStock } from './stock';
 import { receivePurchase } from './purchase-orders';
 import { randomUUID } from 'node:crypto';
@@ -77,8 +78,8 @@ export class InventoryController {
     const lines = data.lines.map((value) => {
       const item = record(value);
       const quantity = item.quantity;
-      if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < (kind === 'delivery' ? 1 : 0) || quantity > 1_000_000) {
-        throw new BadRequestException('Enter valid whole quantities');
+      if (!(kind==='count' && quantity===0) && !validQuantity(quantity,true) || quantity > 1_000_000) {
+        throw new BadRequestException('Enter a valid stock quantity');
       }
       return { sku: text(item.sku,'SKU',80), quantity };
     }).sort((first,second) => first.sku.localeCompare(second.sku));
@@ -101,6 +102,7 @@ export class InventoryController {
       if (orderId) await receivePurchase(client,scope,orderId,lines);
       const current = await inventory(client,scope,skus);
       const bySku = new Map(current.map((item) => [item.sku,item]));
+      if (lines.some(line=>line.quantity!==0 && !validQuantity(line.quantity,bySku.get(line.sku)?.allowDecimal))) throw new BadRequestException('This SKU requires a whole quantity');
       const saved = kind === 'count' ? lines.map((line) => ({
         ...line, onHand: bySku.get(line.sku)!.onHand, movements: bySku.get(line.sku)!.movements,
       })) : lines;
