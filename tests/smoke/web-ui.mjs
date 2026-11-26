@@ -10,10 +10,18 @@ import { setTimeout as delay } from 'node:timers/promises';
 async function main() {
   const profile = await mkdtemp(join(tmpdir(),'era-web-ui-'));
   app.setPath('userData',profile);
+  const customers = new Map();
   const photos = new Map();
   const server = createServer(async (req,res) => {
     const path = new URL(req.url,'http://localhost').pathname;
     if (path.startsWith('/v1/')) {
+      if (path.endsWith('/customers') && req.method === 'POST') {
+        const body = [];
+        for await (const chunk of req) body.push(chunk);
+        const customer = JSON.parse(Buffer.concat(body));
+        customers.set(customer.code,customer);
+        res.setHeader('Content-Type','application/json'); res.end(JSON.stringify({code:customer.code})); return;
+      }
       if (path.endsWith('/catalog/items') && req.method === 'POST') {
         const chunks = [];
         for await (const chunk of req) chunks.push(chunk);
@@ -23,6 +31,8 @@ async function main() {
       }
       const result = path.endsWith('invitations/accept') ? {merchantId:'demo',role:'owner',token:'test'} :
         path.endsWith('/branches') ? ['Central','West'].map(id=>({id,name:id,timezone:'UTC',catalogDefaults:[]})) :
+        path.endsWith('/customers') ? [...customers.values()] :
+        path.endsWith('/C-1/purchases') ? [{id:'linked-sale',register:'A',occurredAt:'2026-11-24T10:00:00Z',currency:'INR',totalMinor:500,lines:[{sku:'TEA',product:'Tea',quantity:1}]}] :
         path.endsWith('/dashboard') ? {currency:'INR',returns:0,products:[],categories:[],buckets:[],
           registers:[{id:'A',name:'Till A',provisional:false}]} :
         path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map((sku,i)=>({sku,product:sku,barcode:'001'+i,priceMinor:500,photo:photos.get(sku)})) :
@@ -87,6 +97,14 @@ async function main() {
     await waitFor("document.querySelector('tbody img')?.naturalWidth === 128 && document.querySelector('tbody img').naturalHeight === 64");
     await run("const remove=document.querySelector('input[name=removePhoto]');remove.click();remove.form.requestSubmit()");
     await waitFor("!document.querySelector('tbody img')");
+    await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Customers').click()");
+    await waitFor("document.body.innerText.includes('Add customer')");
+    await run(`const form=document.querySelector('input[name=code]').form;
+      form.closest('details').open=true;
+      form.elements.code.value='C-1';form.elements.name.value='Test shopper';form.requestSubmit();`);
+    await waitFor("document.body.innerText.includes('Purchase history') && document.querySelector('.desk section details:last-child summary')");
+    await run("document.querySelector('.desk section details:last-child summary').click()");
+    await waitFor("document.body.innerText.includes('linked-sale') && document.body.innerText.includes('Tea')");
     win.setContentSize(390,844);
     await waitFor("document.querySelector('.menu-trigger').offsetWidth > 0");
     await run("document.querySelector('.menu-trigger').click()");

@@ -5,6 +5,7 @@ import type { GstLine, ReceiptBrand, InvoiceBuyer } from './gst';
 export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number; gst?:GstLine };
 export type CashReceiptV1 = {
   kind: 'cash_sale';
+  customerCode?: string;
   cashier?:{id:string;name:string};
   invoiceNumber?:string;
   placeOfSupply?:string;
@@ -37,6 +38,7 @@ export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
   for (const [field, limit] of [[receipt.merchantName, 120], [receipt.receiptAddress, 400], [receipt.receiptGstin, 15]] as const) {
     if (field !== undefined && (typeof field !== 'string' || field.length > limit)) return false;
   }
+  if (receipt.customerCode !== undefined && (typeof receipt.customerCode !== 'string' || !/^[A-Z0-9][A-Z0-9-]{0,31}$/.test(receipt.customerCode))) return false;
   if (receipt.cashier!==undefined && (!receipt.cashier || typeof receipt.cashier.id!=='string' || !receipt.cashier.id || receipt.cashier.id.length>120 ||
     typeof receipt.cashier.name!=='string' || !receipt.cashier.name || receipt.cashier.name.length>320)) return false;
   if (receipt.kind !== 'cash_sale' || typeof receipt.shiftId !== 'string' || !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(receipt.shiftId) ||

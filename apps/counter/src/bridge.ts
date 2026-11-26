@@ -7,17 +7,19 @@ export type CashInput = {
   fallback?: boolean;
   cashPortionMinor?:number;
   placeOfSupply?:string;
+  customerCode?: string;
   buyer?:import('@era/contracts').InvoiceBuyer;
 };
 export type UpiCheckout = {
   cashPortionMinor?:number;
   placeOfSupply?:string;
+  customerCode?: string;
   buyer?:import('@era/contracts').InvoiceBuyer;
   registerId: string; operationId: string; shiftId: string; catalogVersion: string;
   amountMinor: number; lines: CashInput['lines']; status: 'pending' | 'paid' | 'expired' | 'cancelled'; shortUrl: string | null;
 };
 export type CashState = {
-  parked: Array<{ id: string; parkedAt: string; items: number }>;
+  parked: Array<{ id: string; parkedAt: string; items: number; customerCode?: string }>;
   queue: Array<{ id: string; status: string; attempts: number; attemptedAt: string | null; error: string }>;
   shift?: { id: string; openedAt: string };
   receipts: Array<SyncRequestV1<CashReceiptV1> & { status: string }>;
@@ -56,7 +58,7 @@ export interface CounterBridge {
   catalog(): Promise<CatalogSnapshotV1 | undefined>;
   refreshCatalog(): Promise<CatalogSnapshotV1>;
   cashState(): Promise<CashState>;
-  parkSale(id: string, lines: CashInput['lines']): Promise<CashState>;
+  parkSale(id: string, lines: CashInput['lines'], customerCode?: string): Promise<CashState>;
   resumeSale(id: string): Promise<CashInput['lines']>;
   openShift(amount: number): Promise<CashState>;
   closeShift(amount: number): Promise<{ expected: number; variance: number; state: CashState }>;

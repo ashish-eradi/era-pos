@@ -12,6 +12,7 @@ export { returnTenderLabel } from './returns';
 export type CurrencyV1 = 'INR' | 'USD';
 
 export type CatalogSnapshotV1 = {
+  customers?: Array<{ code: string; name: string }>;
   invoiceSeries?: string;
   gstRates?: Record<string,number>;
   gstInclusive?:boolean;

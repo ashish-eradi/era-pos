@@ -11,6 +11,8 @@ import type { CashState } from '../bridge';
 const blankBuyer = {name:'',address:'',gstin:'',deliveryAddress:''};
 export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: string; navigate: (page: string) => void; catalog?: CatalogSnapshotV1; reloadCatalog: () => Promise<void> }) {
   const [state, setState] = useState<CashState>();
+  const [selectedCustomer,setCustomer] = useState('');
+  const customerCode = state?.upi ? state.upi.customerCode : selectedCustomer || undefined;
   const [buyerDetails,setBuyerDetails]=useState(blankBuyer);
   const buyer = state?.upi?.buyer ?? (Object.values(buyerDetails).some(Boolean) ? buyerDetails : undefined);
   const [destination,setDestination] = useState('');
@@ -51,7 +53,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const latestReceipt = state?.receipts.find(sale => sale.operationId === lastReceipt);
   const pending = state?.pending ?? 0;
   useEffect(() => window.counter.onShiftChanged(() => {
-    setCart({}); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setDiscount(false); showClose(false); setOperationId(crypto.randomUUID());
+    setCart({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setDiscount(false); showClose(false); setOperationId(crypto.randomUUID());
     void window.counter.cashState().then(setState).catch(() => setError('Unable to refresh shift'));
   }), []);
   useEffect(() => {
@@ -84,7 +86,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       }
       if (event.key === 'F10' && state?.shift && !payment) {event.preventDefault(); showClose(true);}
       if (event.key === 'Escape' && !payment && !close && Object.values(cart).some(Boolean) && window.confirm('Clear the current cart?')) {
-        setCart({}); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setDiscount(false); setOperationId(crypto.randomUUID());
+        setCart({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setDiscount(false); setOperationId(crypto.randomUUID());
       }
     };
     window.addEventListener('keydown',shortcuts);
@@ -132,6 +134,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     window.addEventListener('keydown', scan, true);
     return () => window.removeEventListener('keydown', scan, true);
   }, [page, catalog, state?.shift, busy, close, payment]);
+  useEffect(() => { if (!Object.values(cart).some(Boolean)) setCustomer(''); },[cart]);
   const lines = items.filter(({ sku }) => cart[sku]).map(item=>catalogLine(item,cart[item.sku],catalog!));
   const discountMinor = discount ? Math.round(Number(reduction)*100) : 0;
   const totals = saleTotals(lines,Number.isSafeInteger(discountMinor) ? discountMinor : 0);
@@ -176,7 +179,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         const result = await window.counter.closeShift(amount);
         setState(result.state);
         showClose(false);
-        setCart({}); setCashPart(''); setBuyerDetails(blankBuyer); setDestination('');
+        setCart({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination('');
         setOperationId(crypto.randomUUID());
         setNotice(`Shift closed. Expected ${money(result.expected)}. Variance ${money(result.variance)}.`);
       }
@@ -186,11 +189,11 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   async function complete(tenderedMinor: number, discountMinor: number, approval?: string, tender?: 'upi') {
       if (!state?.shift || !catalog) return;
       const id = await window.counter.cashSale({
-        operationId, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor, tenderedMinor, approval, tender, fallback,placeOfSupply,buyer,
+        operationId, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor, tenderedMinor, approval, tender, fallback,placeOfSupply,buyer,customerCode,
       });
       setTender(''); setReduction('');
       setLastReceipt(id);
-      setCart({}); setCashPart(''); setBuyerDetails(blankBuyer); setDestination('');
+      setCart({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination('');
       setQuery('');
       setDiscount(false);
       setFallback(false);
@@ -212,7 +215,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
 
   function checkUpi(create: boolean) {
     if (!state?.shift || !catalog) return;
-    const input = { operationId, cashPortionMinor:Math.round(Number(cashPart)*100), placeOfSupply,buyer, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor: 0, tenderedMinor: 0 };
+    const input = { operationId, cashPortionMinor:Math.round(Number(cashPart)*100), placeOfSupply,buyer,customerCode, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor: 0, tenderedMinor: 0 };
     void run(async () => {
       try { await window.counter.upi(create ? input : undefined); }
       finally { setState(await window.counter.cashState()); }
@@ -266,14 +269,18 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
           const parked = await window.counter.resumeSale(draft.id);
           if (parked.some(line=>!items.some(item=>item.sku === line.sku))) throw new Error('A parked product is missing from this catalog');
           setCart(Object.fromEntries(parked.map(line=>[line.sku,line.quantity])));
-          setOperationId(draft.id); setNotice('Parked sale resumed at current catalog prices.');
+          setCustomer(draft.customerCode ?? ''); setOperationId(draft.id); setNotice('Parked sale resumed at current catalog prices.');
         })}>Resume {draft.items} lines · {new Date(draft.parkedAt).toLocaleTimeString()}</button>)}
         {lines.length > 0 && <form ref={saleForm} onSubmit={sell}>
           <fieldset disabled={busy}>
             <legend>Cart and payment</legend>
+            {!!catalog?.customers?.length && <label>Customer<select name="customerCode" disabled={!!payment} value={customerCode ?? ''} onChange={e=>setCustomer(e.target.value)}>
+              <option value="">Walk-in sale</option>
+              {catalog.customers.map(customer=><option key={customer.code} value={customer.code}>{customer.name} · {customer.code}</option>)}
+            </select></label>}
             <button type="button" disabled={!!payment || discount} onClick={() => void run(async () => {
-              setState(await window.counter.parkSale(operationId,lines));
-              setCart({}); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setQuery(''); setLastReceipt('');
+              setState(await window.counter.parkSale(operationId,lines,customerCode));
+              setCart({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setQuery(''); setLastReceipt('');
               setOperationId(crypto.randomUUID()); setNotice('Sale parked on this register.');
             })}>Park sale</button>
             <ul>{lines.map((line,i) => <li key={line.sku}><b>{line.product}</b><small>{line.sku} · {money(line.unitMinor)} each · {money(totals.breakdown[i].payable)} due</small>

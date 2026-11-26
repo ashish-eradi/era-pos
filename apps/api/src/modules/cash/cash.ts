@@ -80,6 +80,7 @@ export class CashController {
       shiftId: receipt.shiftId, currency: receipt.currency, lines, discountMinor: receipt.discountMinor,
       tenderedMinor: receipt.tenderedMinor, totalMinor: saleTotals(lines,receipt.discountMinor).total,
       ...(receipt.tender && { tender: receipt.tender,cashPortionMinor:receipt.cashPortionMinor }),
+      customerCode:receipt.customerCode,
       cashier:receipt.cashier && {id:receipt.cashier.id,name:receipt.cashier.name},buyer:receipt.buyer, brand:receipt.brand, invoiceNumber:receipt.invoiceNumber, placeOfSupply:receipt.placeOfSupply,
       merchantName: receipt.merchantName, receiptAddress: receipt.receiptAddress, receiptGstin: receipt.receiptGstin,
     };
@@ -109,6 +110,8 @@ export class CashController {
         if ((await client.query("SELECT 1 FROM cash_sales WHERE merchant_id=$1 AND receipt->>'invoiceNumber'=$2",[merchant,receipt.invoiceNumber])).rowCount)
           return fail('operation_conflict');
       }
+      if (receipt.customerCode && !(await client.query('SELECT 1 FROM customers WHERE merchant_id=$1 AND branch_id=$2 AND code=$3',[merchant,branch,receipt.customerCode])).rowCount)
+        return fail('invalid_operation');
       if (receipt.cashier && !(await client.query('SELECT 1 FROM memberships WHERE merchant_id=$1 AND id=$2',[merchant,receipt.cashier.id])).rowCount)
         return fail('invalid_operation');
       const products = await client.query('SELECT sku FROM branch_catalog WHERE merchant_id = $1 AND branch_id = $2 AND sku = ANY($3)',

@@ -2,6 +2,11 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { CatalogSnapshotV1 } from '@era/contracts';
 import { apiUrl, catalogCredential, pairing } from './pairing';
 
+export function checkCustomer(catalog: CatalogSnapshotV1 | undefined, code?: string) {
+  if (code !== undefined && !catalog?.customers?.some(customer => customer.code === code))
+    throw new Error('Choose a customer from this branch or use a walk-in sale');
+}
+
 export function cachedCatalog(database: DatabaseSync): CatalogSnapshotV1 | undefined {
   const row = database.prepare("SELECT value FROM register_settings WHERE key = 'catalog-snapshot'").get();
   if (typeof row?.value !== 'string') return;
