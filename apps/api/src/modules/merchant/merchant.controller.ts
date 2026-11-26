@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
 import { allowProvisioning } from './subscription-access';
-import { gstStates } from '@era/contracts';
+import { gstStates,validPolicy } from '@era/contracts';
 import { defaults, transaction } from '../onboarding/shared';
 
 export const MERCHANT_DATABASE = Symbol('MERCHANT_DATABASE');
@@ -25,6 +25,21 @@ function requiredText(value: unknown, field: string, maxLength: number): string 
 @Controller('v1/merchants/:merchantId')
 export class MerchantController {
   constructor(@Inject(MERCHANT_DATABASE) private readonly database: Pool) {}
+
+  @Get('discount-policy')
+  async discountPolicy(@Param('merchantId') id:string,@Headers('authorization') auth?:string) {
+    if ((await this.member(id,auth)).role!=='owner') throw new ForbiddenException();
+    const {rows}=await this.database.query('SELECT policy FROM discount_policies WHERE merchant_id=$1 ORDER BY published_at DESC LIMIT 1',[id]);
+    return rows[0]?.policy ?? {cap:{kind:'flat',value:0},offers:[]};
+  }
+
+  @Post('discount-policy')
+  async publishPolicy(@Param('merchantId') id:string,@Body() input:unknown,@Headers('authorization') auth?:string) {
+    if ((await this.member(id,auth)).role!=='owner') throw new ForbiddenException();
+    if (!validPolicy(input)) throw new BadRequestException('Check the discount limit, unique codes, values and expiry dates');
+    await this.database.query('INSERT INTO discount_policies (merchant_id,id,policy) VALUES ($1,$2,$3)',[id,randomUUID(),JSON.stringify({cap:input.cap,offers:input.offers})]);
+    return {saved:true};
+  }
 
   @Get('receipt-settings')
   async receiptSettings(@Param('merchantId') id: string, @Headers('authorization') auth?: string) {

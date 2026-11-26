@@ -281,6 +281,19 @@ export async function checkOnboarding(port, connectionString) {
     const partial=await call('devices/returns',freshProof,201,{deviceId,id:randomUUID(),action:'create',shiftId:weighed.payload.shiftId,
       saleId:weighed.operationId,reason:'Partial weight',lines:[{sku:'RICE',quantity:0.05,disposition:'sellable'}]});
     assert.equal(partial.creditMinor,50);
+    const policyPath=merchant+'/discount-policy';
+    const discountPolicy={cap:{kind:'percent',value:4},offers:[]};
+    await call(policyPath,staff.token,403,discountPolicy);
+    await call(policyPath,owner.token,201,discountPolicy);
+    const published=(await call('devices/catalog',freshProof,201,{deviceId})).discountPolicy;
+    const capped={...weighed,occurredAt:new Date().toISOString(),operationId:randomUUID(),payload:{...weighed.payload,policyId:published.id,discountMinor:5,tenderedMinor:120}};
+    const syncDiscount=operation=>call('devices/cash-sales',freshProof,201,{deviceId,operation});
+    assert.equal((await syncDiscount({...capped,payload:{...capped.payload,discountMinor:6}})).status,'rejected');
+    assert.equal((await syncDiscount(capped)).status,'committed');
+    await call(policyPath,owner.token,201,{cap:{kind:'flat',value:0},offers:[]});
+    await call('devices/catalog',freshProof,201,{deviceId});
+    assert.equal((await syncDiscount(capped)).status,'replayed');
+    assert.equal((await syncDiscount({...capped,operationId:randomUUID(),occurredAt:new Date().toISOString()})).status,'rejected');
     console.log('Discount authorization, cash sync replay, single stock decrement and owner isolation passed');
     const heartbeat = { deviceId, appVersion: '0.0.0', pending: 2, rejected: 1, oldestPendingAt: operation.occurredAt };
     await call('devices/heartbeat', otherProof, 401, heartbeat);
@@ -354,7 +367,7 @@ export async function checkOnboarding(port, connectionString) {
       const { rows } = await db.query('SELECT merchant_id FROM trials WHERE operator_id = ANY($1)', [operators]);
       const merchants = rows.map(({ merchant_id }) => merchant_id);
       await db.query('BEGIN');
-      for (const table of [
+      for (const table of ['discount_policies',
         'support_events', 'support_grants', 'support_tickets', 'register_health',
         'sale_returns', 'shift_closes', 'cash_sales', 'cash_discount_approvals',
         'stock_movements', 'catalog_imports', 'branch_catalog', 'customers',

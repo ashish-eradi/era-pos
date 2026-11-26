@@ -189,8 +189,10 @@ export async function checkPayments(port, connectionString, provider) {
     await call('devices/upi', 201, { ...attempt, operationId: second });
     pay(second, 2);
     assert.equal((await call('devices/upi', 201, { deviceId, operationId: second })).status, 'paid');
-    const digital = { ...sale, operationId: second, payload: { ...sale.payload, tender:'upi', cashPortionMinor:2000,
-      tenderedMinor:12000,lines:[{...sale.payload.lines[0],unitMinor:12000}] } };
+    await call(`merchants/${merchant}/discount-policy`,201,{cap:{kind:'flat',value:100},offers:[{code:'NOTE5',sku:'NOTE',kind:'flat',value:500}]},token);
+    const policy=(await call('devices/catalog',201,{deviceId})).discountPolicy;
+    const digital = { ...sale, occurredAt:new Date().toISOString(),operationId: second, payload: { ...sale.payload, tender:'upi', cashPortionMinor:2000,
+      policyId:policy.id,offerCode:'NOTE5',discountMinor:500,tenderedMinor:12000,lines:[{...sale.payload.lines[0],unitMinor:12500,offerMinor:500}] } };
     assert.equal((await call('devices/cash-sales', 201, { deviceId, operation: digital })).status, 'committed');
     assert.equal((await call('devices/cash-sales', 201, { deviceId, operation: digital })).status, 'replayed');
     for (const [channel,recipient] of [['email','buyer@example.test'],['sms','+15555550101'],['whatsapp','+15555550101']]) {
@@ -450,7 +452,7 @@ export async function checkPayments(port, connectionString, provider) {
   } finally {
     try {
       await db.query('BEGIN');
-      for (const table of ['subscription_events','subscription_payments','subscription_invoices','subscriptions','merchant_exports','upi_settlements','upi_refunds','upi_events','upi_attempts','shift_closes','stock_transfer_receipts','stock_transfers','inventory_documents','purchase_orders','sale_returns','cash_sales','stock_movements',
+      for (const table of ['discount_policies','subscription_events','subscription_payments','subscription_invoices','subscriptions','merchant_exports','upi_settlements','upi_refunds','upi_events','upi_attempts','shift_closes','stock_transfer_receipts','stock_transfers','inventory_documents','purchase_orders','sale_returns','cash_sales','stock_movements',
         'branch_catalog','catalog_barcodes','activation_codes','merchant_audit','registers','entitlements','membership_sessions','branch_assignments','memberships','branches']) {
         await db.query(`DELETE FROM ${table} WHERE merchant_id = $1`, [merchant]);
       }

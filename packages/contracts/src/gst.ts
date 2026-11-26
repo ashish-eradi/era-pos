@@ -42,15 +42,17 @@ export function catalogLine(item:CatalogSnapshotV1['items'][number],quantity:num
 export function saleTotals(lines:CashLineV1[],discountMinor:number) {
   const subtotal = lines.reduce((sum,l)=>sum+lineAmount(l.unitMinor,l.quantity),0);
   if (!Number.isSafeInteger(subtotal) || !Number.isSafeInteger(discountMinor)) throw new Error('Invalid monetary amount');
+  const targeted = lines.reduce((sum,line)=>sum+(line.offerMinor ?? 0),0);
+  const allocatable = subtotal-targeted;
   let cumulative = 0;
   let allocated = 0;
   let tax = 0;
   let total = 0;
   const breakdown = lines.map(line=>{
     const amount = lineAmount(line.unitMinor,line.quantity);
-    cumulative += amount;
-    const share = subtotal ? Number(BigInt(discountMinor)*BigInt(cumulative)/BigInt(subtotal)) : 0;
-    const discount = share-allocated;
+    cumulative += amount-(line.offerMinor ?? 0);
+    const share = allocatable ? Number(BigInt(discountMinor-targeted)*BigInt(cumulative)/BigInt(allocatable)) : 0;
+    const discount = share-allocated+(line.offerMinor ?? 0);
     allocated = share;
     const net = amount-discount;
     const rate = line.gst?.rate ?? 0;

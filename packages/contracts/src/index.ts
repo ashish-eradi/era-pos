@@ -3,6 +3,7 @@ export type HealthResponseV1 = {
   status: 'ok' | 'unavailable';
 };
 
+export * from './discounts';
 export { validQuantity, lineAmount, units } from './quantity';
 export type { Unit } from './quantity';
 export { cashAmount, cashSubtotal, isCashReceiptV1, validModifiers } from './cash';
@@ -15,6 +16,7 @@ export { returnTenderLabel } from './returns';
 export type CurrencyV1 = 'INR' | 'USD';
 
 export type CatalogSnapshotV1 = {
+  discountPolicy?: import('./discounts').PublishedPolicy | null;
   customers?: Array<{ code: string; name: string; phone?: string }>;
   invoiceSeries?: string;
   gstRates?: Record<string,number>;

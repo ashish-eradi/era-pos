@@ -47,12 +47,12 @@ const server = createServer(async (request, response) => {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
     if (input.amount !== undefined) {
-      assert.equal(input.amount, 11900);
+      assert.equal(input.amount, 11400);
       upiOperation = input.operationId;
     } else assert.equal(input.operationId, upiOperation);
     response.writeHead(201, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ operationId: upiOperation, status: input.amount ? 'pending' : 'paid',
-      amountMinor: 11900, shortUrl: 'https://rzp.io/i/counter-test' }));
+      amountMinor: 11400, shortUrl: 'https://rzp.io/i/counter-test' }));
     return;
   }
   if (request.url === '/v1/devices/cash-sales') {
@@ -66,7 +66,9 @@ const server = createServer(async (request, response) => {
     assert.equal(input.operation.payload.invoiceNumber,input.operation.payload.tender==='upi'?'42-2':'42-1');
     if (input.operation.payload.tender === 'upi') {
       assert.equal(input.operation.operationId, upiOperation);
-      assert.equal(input.operation.payload.tenderedMinor, 14900);
+      assert.equal(input.operation.payload.tenderedMinor,14400);
+      assert.equal(input.operation.payload.offerCode,'SAVE5');
+      assert.equal(input.operation.payload.lines[0].offerMinor,500);
       assert.equal(input.operation.payload.cashPortionMinor,3000);
       recordedUpi++;
       response.writeHead(201, { 'content-type': 'application/json' });
@@ -112,6 +114,7 @@ const server = createServer(async (request, response) => {
     response.writeHead(201, { 'content-type': 'application/json' });
     response.end(JSON.stringify({
       merchantId: 'fixture-in', branchId: 'central', registerId: 'counter-1', currency: 'INR', version: '1',
+      discountPolicy:{id:'12345678-1234-4234-8234-123456789012',cap:{kind:'flat',value:100},offers:[{kind:'flat',value:500,code:'SAVE5',sku:'NOTE-A5'}]},
       customers:[{code:'C-1',name:'Test shopper'}],invoiceSeries:'42',gstRates:{Stationery:18},gstInclusive:true,receiptGstin:'27ABCDE1234F1Z5',
       items: [{ category:'Stationery',hsn:'4820',sku: 'NOTE-A5', product: 'A5 notebook', barcode: '0012345678905', modifiers:[{name:'Gift wrap',priceMinor:2000}], priceMinor: 12900, onHand: 2, attributes: {},
         photo:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWV8AAAAASUVORK5CYII=' }],
@@ -164,7 +167,7 @@ async function launch(activate = false,resumePayment=false) {
         const pages = await (await fetch(`http://${endpoint}/json/list`)).json();
         const page = pages.find(({ type, url }) => type === 'page' && url.includes('renderer/index.html') && !url.endsWith('#customer'));
         const display=pages.find(({type,url})=>type==='page' && url.endsWith('#customer'));
-        if (display && page && await evaluate(display.webSocketDebuggerUrl,"!window.counter && document.body.innerText.includes('A5 notebook')"))
+        if (display && page && await evaluate(display.webSocketDebuggerUrl,"!window.counter && document.body?.innerText.includes('A5 notebook')"))
           await evaluate(page.webSocketDebuggerUrl,'window.displayChecked=true');
         if (page && i === 119) log += await evaluate(page.webSocketDebuggerUrl,"JSON.stringify({step:window.checkoutStep,display:window.displayChecked,text:document.body.innerText.slice(-900)})");
         if (page && activate && await evaluate(page.webSocketDebuggerUrl, `
@@ -264,6 +267,11 @@ async function launch(activate = false,resumePayment=false) {
               customer.value='C-1';
               customer.dispatchEvent(new Event('change',{bubbles:true}));
               [...checkout.querySelectorAll('label')].find(label=>label.textContent.includes('Gift wrap') && label.querySelector('input[type=checkbox]')).querySelector('input').click();
+              button('Request discount').click();window.checkoutStep=3.1;
+            } else if(next===3.1 && checkout.querySelector('input[name=coupon]')) {
+              const coupon=checkout.querySelector('input[name=coupon]');
+              Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(coupon,'SAVE5');
+              coupon.dispatchEvent(new Event('input',{bubbles:true}));
               button('Split').click();window.checkoutStep=3.25;
             } else if(next===3.25 && document.querySelector('input[name=cashPart]')) {
               const field=document.querySelector('input[name=cashPart]');

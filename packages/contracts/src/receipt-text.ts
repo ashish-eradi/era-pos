@@ -15,7 +15,7 @@ export function receiptText(receipt:CashReceiptV1,id:string,date:Date,register:s
     if (line.gst) parts.push('HSN '+line.gst.hsn+' · GST '+line.gst.rate+'% · Taxable '+money(breakdown[i].taxable)+' · '+
       Object.entries(gstComponents(breakdown[i].tax,receipt.receiptGstin!.slice(0,2),receipt.placeOfSupply!)).map(([k,v])=>k+' '+money(v ?? 0)).join(', '));
   }
-  if (receipt.discountMinor) parts.push('Discount '+money(receipt.discountMinor));
+  if (receipt.discountMinor) parts.push('Discount '+money(receipt.discountMinor)+(receipt.offerCode?' ('+receipt.offerCode+')':''));
   if (savings) parts.push('You saved '+money(savings));
   parts.push('Total '+money(total));
   if (receipt.tender==='upi') parts.push('UPI '+money(total-(receipt.cashPortionMinor ?? 0)));

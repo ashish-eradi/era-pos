@@ -2,6 +2,7 @@ import type { CashLineV1, CashReceiptV1, CatalogSnapshotV1, ReturnReceipt, Retur
 
 export type CashInput = {
   operationId: string; shiftId: string; catalogVersion: string; lines: Array<{ sku: string; quantity: number; modifierNames?: string[] }>;
+  offerCode?:string;
   discountMinor: number; tenderedMinor: number; approval?: string;
   tender?: 'upi';
   fallback?: boolean;
@@ -11,6 +12,7 @@ export type CashInput = {
   buyer?:import('@era/contracts').InvoiceBuyer;
 };
 export type UpiCheckout = {
+  discountMinor?:number; offerCode?:string; pricedAt?:string; policyId?:string;
   cashPortionMinor?:number;
   placeOfSupply?:string;
   customerCode?: string;

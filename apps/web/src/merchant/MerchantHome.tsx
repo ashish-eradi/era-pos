@@ -14,6 +14,7 @@ import { UpiPayments } from './UpiPayments';
 import { BranchShifts } from './BranchShifts';
 import { Overview } from './Overview';
 import { CashierPins } from './CashierPins';
+import { DiscountSettings } from './DiscountSettings';
 import { ReceiptSettings } from './ReceiptSettings';
 import { Signup } from './Signup';
 
@@ -30,7 +31,7 @@ function savedSession(): Session | undefined {
 }
 
 import { ChartColumn, Tags, Users, Boxes, Undo2, Store, Receipt, Settings, Wallet, Calendar, Plug, LifeBuoy } from 'lucide-react';
-const sectionIcons:Record<string,typeof Store>={Overview:ChartColumn,Catalog:Tags,Customers:Users,Inventory:Boxes,Returns:Undo2,'Team and registers':Store,Sales:Receipt,'Receipt settings':Settings,Payments:Wallet,Subscription:Calendar,Integrations:Plug,Support:LifeBuoy};
+const sectionIcons:Record<string,typeof Store>={Overview:ChartColumn,Catalog:Tags,Customers:Users,Inventory:Boxes,Returns:Undo2,'Team and registers':Store,Sales:Receipt,Discounts:Tags,'Receipt settings':Settings,Payments:Wallet,Subscription:Calendar,Integrations:Plug,Support:LifeBuoy};
 function SectionIcon({name}:{name:string}) {const Icon=sectionIcons[name] ?? Store;return <Icon aria-hidden="true" size={18}/>;}
 export function MerchantHome() {
   const [menu,setMenu] = useState(false);
@@ -93,7 +94,7 @@ export function MerchantHome() {
       <nav className="tabs" aria-label="Merchant sections">{['Overview', ...(session.role === 'owner' ? ['Catalog'] : []),
         ...(['owner','manager'].includes(session.role) ? ['Customers','Inventory','Returns','Team and registers'] : []),
         ...(['owner','manager','accountant'].includes(session.role) ? ['Sales'] : []),
-        ...(session.role === 'owner' ? ['Receipt settings','Payments','Subscription','Integrations','Support'] : [])].map(name =>
+        ...(session.role === 'owner' ? ['Discounts','Receipt settings','Payments','Subscription','Integrations','Support'] : [])].map(name =>
           <button key={name} aria-current={section === name ? 'page' : undefined} onClick={() => {setSection(name);setMenu(false);}}><SectionIcon name={name}/>{name}{name === 'Inventory' && !!stock.data?.length && <span className="stock-count" aria-label={`${stock.data.length} low-stock items`}>{stock.data.length}</span>}</button>)}</nav>
         <button className="quiet" onClick={() => {setSection('Overview');setSession(undefined);setBranches([]);setRegisters([]);setBranchId('');setBusinessDate('');}}>End local session</button>
       </aside><article className="desk"><header className="section-head"><h1><SectionIcon name={section}/> {section}</h1>
@@ -102,6 +103,7 @@ export function MerchantHome() {
       {section === 'Overview' && branch && (session.role === 'cashier' ? <p>Use your paired counter to open a shift and sell in {branch.name}.</p> : <>
         <Overview key={branch.id} date={date} path={`merchants/${session.merchantId}/branches/${branch.id}`} token={session.token} stock={stock.data} stockError={stock.error} sales={day=>{setBusinessDate(day);setSection('Sales');}} /></>)}
       {!branches.length && <Action title="Refresh branches" run={async()=>{await refresh(session);return '';}}/>}
+      {section === 'Discounts' && session.role === 'owner' && <DiscountSettings path={`merchants/${session.merchantId}/discount-policy`} token={session.token}/>}
       {section === 'Receipt settings' && session.role === 'owner' && <ReceiptSettings key={session.merchantId} path={`merchants/${session.merchantId}/receipt-settings`} token={session.token}/>}
       {section === 'Subscription' && session.role === 'owner' && <Subscription path={`merchants/${session.merchantId}`} token={session.token} />}
       {section === 'Sales' && branch && session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}/cash-sales?branch=${encodeURIComponent(branch.id)}`} token={session.token} />}
