@@ -217,11 +217,14 @@ export async function checkOnboarding(port, connectionString) {
       brand:{footer:'Visit again'},rates:{Stationery:18},inclusive:false};
     await call(`${merchant}/receipt-settings`,owner.token,201,receiptSettings);
     const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWV8AAAAASUVORK5CYII=';
+    const modifiers = [{name:'Gift wrap',priceMinor:2000}];
     const notebook = {sku:'NOTE-A5',product:'A5 notebook',priceMinor:12900};
     await call(`${importPath}/items`,owner.token,400,{...notebook,photo:'invalid'});
-    await call(`${importPath}/items`,owner.token,201,{...notebook,photo});
+    await call(`${importPath}/items`,owner.token,400,{...notebook,modifiers:[...modifiers,...modifiers]});
+    await call(`${importPath}/items`,owner.token,201,{...notebook,photo,modifiers});
     await call(`${importPath}/items`,owner.token,201,{sku:'NOTE-A5',product:'A5 notebook',priceMinor:12900,hsn:'4820'});
     const taxedCatalog = await call('devices/catalog',freshProof,201,{deviceId});
+    assert.deepEqual(taxedCatalog.items.find(item=>item.sku==='NOTE-A5').modifiers,modifiers);
     assert.equal(taxedCatalog.gstRates.Stationery,18);
     assert.equal(taxedCatalog.items.find(item=>item.sku==='NOTE-A5').hsn,'4820');
     assert.equal(taxedCatalog.items.find(item=>item.sku==='NOTE-A5').photo,photo);
@@ -241,18 +244,20 @@ export async function checkOnboarding(port, connectionString) {
     await call(merchant+'/branches/'+second.id+'/customers/MEMBER-01/purchases',owner.token,404);
     const invoice = {...operation,operationId:randomUUID(),payload:{...operation.payload,discountMinor:0,approval:undefined,
       customerCode:'MEMBER-01',invoiceNumber:taxedCatalog.invoiceSeries+'-1',receiptGstin:receiptSettings.gstin,placeOfSupply:'29',
-      tenderedMinor:15222,lines:operation.payload.lines.map(line=>({...line,gst:{hsn:'4820',inclusive:false,rate:18}}))}};
+      tenderedMinor:17582,lines:operation.payload.lines.map(line=>({...line,unitMinor:14900,modifiers,gst:{hsn:'4820',inclusive:false,rate:18}}))}};
     assert.equal((await call('devices/cash-sales',freshProof,201,{deviceId,operation:invoice})).status,'committed');
     assert.equal((await call('devices/cash-sales',freshProof,201,{deviceId,operation:invoice})).status,'replayed');
     await call(customers,owner.token,201,{...customer,edit:true,name:'Updated customer'});
     const purchases = await call(customers+'/MEMBER-01/purchases',owner.token,200);
-    assert.deepEqual(purchases.map(p=>[p.id,p.totalMinor,p.lines[0].sku]),[[invoice.operationId,15222,'NOTE-A5']]);
+    assert.deepEqual(purchases.map(p=>[p.id,p.totalMinor,p.lines[0].sku]),[[invoice.operationId,17582,'NOTE-A5']]);
     const syncedInvoice=(await call(`${merchant}/cash-sales`,owner.token,200)).find(row=>row.id===invoice.operationId);
-    assert.equal(syncedInvoice.receipt.totalMinor,15222);
+    assert.equal(syncedInvoice.receipt.totalMinor,17582);
+    await call(`${importPath}/items`,owner.token,201,{...notebook,modifiers:[]});
     const quoted=await call('devices/returns',freshProof,201,{deviceId,id:randomUUID(),action:'create',shiftId:invoice.payload.shiftId,
       saleId:invoice.operationId,reason:'Test return',lines:[{sku:'NOTE-A5',quantity:1,disposition:'sellable'}]});
-    assert.equal(quoted.lines[0].taxMinor,2322);
-    assert.equal(quoted.creditMinor,15222);
+    assert.deepEqual(quoted.lines[0].modifiers,modifiers);
+    assert.equal(quoted.lines[0].taxMinor,2682);
+    assert.equal(quoted.creditMinor,17582);
     console.log('Discount authorization, cash sync replay, single stock decrement and owner isolation passed');
     const heartbeat = { deviceId, appVersion: '0.0.0', pending: 2, rejected: 1, oldestPendingAt: operation.occurredAt };
     await call('devices/heartbeat', otherProof, 401, heartbeat);

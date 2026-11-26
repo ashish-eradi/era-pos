@@ -21,7 +21,7 @@ export function SaleReceipt({ sale }: { sale: SyncRequestV1<CashReceiptV1> }) {
         {receipt.buyer.deliveryAddress && <><br/>Deliver to {receipt.buyer.deliveryAddress}</>}</p>}
       <p>{new Date(sale.occurredAt).toLocaleString()}</p></header>
     <table><thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead>
-      <tbody>{receipt.lines.map((line,i) => <tr key={line.sku}><td>{line.product}<small>{money(line.unitMinor)} each</small>{line.gst && <small>HSN {line.gst.hsn} Â· GST {line.gst.rate}%<br/>Taxable {money(breakdown[i].taxable)}<br/>
+      <tbody>{receipt.lines.map((line,i) => <tr key={line.sku}><td>{line.product}{line.modifiers?.map(m=><small key={m.name}>{m.name} +{money(m.priceMinor)} each</small>)}<small>{money(line.unitMinor)} each</small>{line.gst && <small>HSN {line.gst.hsn} Â· GST {line.gst.rate}%<br/>Taxable {money(breakdown[i].taxable)}<br/>
           {Object.entries(components[i]).map(([k,v])=><span key={k}>{k} {money(v ?? 0)} </span>)}</small>}</td>
         <td>{line.quantity}</td><td>{money(breakdown[i].payable)}</td></tr>)}</tbody></table>
     <dl><dt>Before tax and discount</dt><dd>{money(total-tax+receipt.discountMinor)}</dd><dt>Discount</dt><dd>{money(receipt.discountMinor)}</dd>

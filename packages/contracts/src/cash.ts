@@ -2,7 +2,21 @@ import type { CurrencyV1 } from './index';
 
 import { saleTotals, gstStates, validBuyer } from './gst';
 import type { GstLine, ReceiptBrand, InvoiceBuyer } from './gst';
-export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number; gst?:GstLine };
+export type ItemModifier = { name: string; priceMinor: number };
+export function validModifiers(value: unknown): value is ItemModifier[] {
+  if (!Array.isArray(value) || value.length > 20) return false;
+  const names = new Set<string>();
+  for (const option of value) {
+    if (!option || typeof option.name !== 'string' || !option.name.trim() ||
+      option.name !== option.name.trim() || option.name.length > 60 || Array.from(option.name as string).some(c=>c.charCodeAt(0)<32) ||
+      !Number.isInteger(option.priceMinor) || option.priceMinor < 0 || option.priceMinor > 1_000_000_000) return false;
+    const name = option.name.toLowerCase();
+    if (names.has(name)) return false;
+    names.add(name);
+  }
+  return true;
+}
+export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number; gst?:GstLine; modifiers?: ItemModifier[] };
 export type CashReceiptV1 = {
   kind: 'cash_sale';
   customerCode?: string;
@@ -49,6 +63,8 @@ export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
       typeof line.product === 'string' && line.product.length > 0 && line.product.length <= 150 && !line.product.includes('\0') &&
       Number.isInteger(line.quantity) && line.quantity > 0 && line.quantity <= 1000 && cashAmount(line.unitMinor))) return false;
   if ((receipt.buyer !== undefined || receipt.placeOfSupply !== undefined) && receipt.invoiceNumber === undefined) return false;
+  if (receipt.lines.some(line => line.modifiers !== undefined && (!validModifiers(line.modifiers) ||
+    line.modifiers.reduce((sum,m)=>sum+m.priceMinor,0) > line.unitMinor))) return false;
   if (receipt.brand !== undefined && (!receipt.brand || typeof receipt.brand !== 'object' || Array.isArray(receipt.brand) ||
       Object.entries(receipt.brand).some(([k,v])=>typeof v !== 'string' || (k === 'logo' ? !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(v) || v.length>32768 : !['legalName','header','footer','returnPolicy'].includes(k) || v.length>800)))) return false;
   if (receipt.lines.some(l=>l.gst !== undefined && (!l.gst || !Number.isFinite(l.gst.rate) || Math.abs(l.gst.rate*100-Math.round(l.gst.rate*100))>1e-8 || l.gst.rate<0 || l.gst.rate>100 || typeof l.gst.inclusive !== 'boolean' || typeof l.gst.hsn !== 'string' || !/^(?:\d{4}|\d{6}|\d{8})$/.test(l.gst.hsn)))) return false;

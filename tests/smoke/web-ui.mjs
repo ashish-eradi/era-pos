@@ -11,6 +11,7 @@ async function main() {
   const profile = await mkdtemp(join(tmpdir(),'era-web-ui-'));
   app.setPath('userData',profile);
   const customers = new Map();
+  const modifiers = new Map();
   const photos = new Map();
   const server = createServer(async (req,res) => {
     const path = new URL(req.url,'http://localhost').pathname;
@@ -27,6 +28,7 @@ async function main() {
         for await (const chunk of req) chunks.push(chunk);
         const item = JSON.parse(Buffer.concat(chunks));
         photos.set(item.sku,item.photo);
+        modifiers.set(item.sku,item.modifiers);
         res.setHeader('Content-Type','application/json'); res.end('{"updated":true}'); return;
       }
       const result = path.endsWith('invitations/accept') ? {merchantId:'demo',role:'owner',token:'test'} :
@@ -35,7 +37,7 @@ async function main() {
         path.endsWith('/C-1/purchases') ? [{id:'linked-sale',register:'A',occurredAt:'2026-11-24T10:00:00Z',currency:'INR',totalMinor:500,lines:[{sku:'TEA',product:'Tea',quantity:1}]}] :
         path.endsWith('/dashboard') ? {currency:'INR',returns:0,products:[],categories:[],buckets:[],
           registers:[{id:'A',name:'Till A',provisional:false}]} :
-        path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map((sku,i)=>({sku,product:sku,barcode:'001'+i,priceMinor:500,photo:photos.get(sku)})) :
+        path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map((sku,i)=>({sku,product:sku,barcode:'001'+i,priceMinor:500,modifiers:modifiers.get(sku),photo:photos.get(sku)})) :
         path.endsWith('/daily-close') ? {currency:'INR',grossMinor:'12500',netMinor:'12500',date:'2026-11-24',
           provisional:false,sales:[{id:'receipt-1',register_id:'A',receipt:{currency:'INR',totalMinor:12500}}],
           registers:[{id:'A',name:'Till A',provisional:false}],returns:[],shifts:[],settlements:[],providerRefunds:[]} : [];
@@ -84,6 +86,9 @@ async function main() {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'f');
       search.dispatchEvent(new Event('input',{bubbles:true}));`);
     await waitFor("document.querySelectorAll('.desk tbody tr').length===1 && document.querySelector('.desk tbody').textContent.includes('COFFEE')");
+    await run("const addOption=[...document.querySelectorAll('tbody button')].find(b=>b.textContent==='Add modifier');addOption.closest('details').open=true;addOption.click()");
+    await waitFor("!!document.querySelector('input[name=modifierName]')");
+    await run("document.querySelector('input[name=modifierName]').value='Gift wrap';document.querySelector('input[name=modifierPrice]').value='2000'");
     await run(`(async () => {
       const canvas = document.createElement('canvas');
       canvas.width = 640; canvas.height = 320;
@@ -95,6 +100,7 @@ async function main() {
       input.form.requestSubmit();
     })()`);
     await waitFor("document.querySelector('tbody img')?.naturalWidth === 128 && document.querySelector('tbody img').naturalHeight === 64");
+    assert.deepEqual(modifiers.get('COFFEE'),[{name:'Gift wrap',priceMinor:2000}]);
     await run("const remove=document.querySelector('input[name=removePhoto]');remove.click();remove.form.requestSubmit()");
     await waitFor("!document.querySelector('tbody img')");
     await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Customers').click()");

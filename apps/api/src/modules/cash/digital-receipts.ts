@@ -15,6 +15,7 @@ function receiptText(receipt:CashReceiptV1,id:string,date:Date) {
     receipt.placeOfSupply && 'Place of supply '+receipt.placeOfSupply,date.toISOString(),'Receipt '+id];
   for (const [i,line] of receipt.lines.entries()) {
     parts.push(line.quantity+' × '+line.product+' @ '+money(line.unitMinor)+' = '+money(breakdown[i].payable));
+    for (const m of line.modifiers ?? []) parts.push(m.name+' +'+money(m.priceMinor)+' each');
     if (line.gst) parts.push('HSN '+line.gst.hsn+' · GST '+line.gst.rate+'% · Taxable '+money(breakdown[i].taxable)+' · '+
       Object.entries(gstComponents(breakdown[i].tax,receipt.receiptGstin!.slice(0,2),receipt.placeOfSupply!)).map(([k,v])=>k+' '+money(v ?? 0)).join(', '));
   }

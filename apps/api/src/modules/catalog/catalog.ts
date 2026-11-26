@@ -1,3 +1,4 @@
+import { validModifiers } from '@era/contracts';
 import { deviceInput, parseInput } from '../onboarding/device-input';
 import { randomUUID } from 'node:crypto';
 import {
@@ -60,7 +61,7 @@ export class CatalogController {
     return transaction(this.database, async client => {
       await owner(client, merchant, authorization);
       const attributes = Object.fromEntries(Object.entries(query).map(([key,value]) => [text(key,'attribute',40),text(value,'value',80)]));
-      return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",category,hsn,attributes,photo FROM branch_catalog
+      return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",category,hsn,attributes,photo,modifiers FROM branch_catalog
         WHERE merchant_id=$1 AND branch_id=$2 AND attributes @> $3::jsonb ORDER BY sku`, [merchant,branch,JSON.stringify(attributes)])).rows;
     });
   }
@@ -77,15 +78,20 @@ export class CatalogController {
       if (typeof price !== 'number' || !Number.isInteger(price) || price < 0 || price > 1_000_000_000)
         throw new BadRequestException('Invalid price in minor units');
       await client.query('SELECT id FROM merchants WHERE id=$1 FOR UPDATE',[merchant]);
-      const item = await client.query('SELECT product,price_minor,category,hsn,photo FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',[merchant,branch,sku]);
+      const item = await client.query('SELECT product,price_minor,category,hsn,photo,modifiers FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',[merchant,branch,sku]);
       if (!item.rowCount) throw new NotFoundException();
       const category = data.category === undefined ? item.rows[0].category : data.category === '' ? null : text(data.category,'category',80);
       const hsn = data.hsn === undefined ? item.rows[0].hsn : data.hsn || null;
       if (hsn !== null && (typeof hsn !== 'string' || !/^(?:\d{4}|\d{6}|\d{8})$/.test(hsn))) throw new BadRequestException('Enter a 4, 6 or 8 digit HSN');
       const photo = data.photo === undefined ? item.rows[0].photo : validatePhoto(data.photo);
-      if (item.rows[0].photo === photo && item.rows[0].hsn === hsn && item.rows[0].category === category && item.rows[0].product === product && item.rows[0].price_minor === price) return { updated: false };
-      await client.query('UPDATE branch_catalog SET product=$4,price_minor=$5,category=$6,hsn=$7,photo=$8 WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',
-        [merchant,branch,sku,product,price,category,hsn,photo]);
+      const modifiers = data.modifiers ?? item.rows[0].modifiers;
+      if (!validModifiers(modifiers)) throw new BadRequestException('Use up to 20 uniquely named modifiers with nonnegative whole prices in minor units');
+      const options = modifiers.map(({name,priceMinor}) => ({name,priceMinor}));
+      const previous = item.rows[0].modifiers as typeof options;
+      const sameOptions = previous.length === options.length && previous.every((m,i)=>m.name===options[i].name && m.priceMinor===options[i].priceMinor);
+      if (sameOptions && item.rows[0].photo === photo && item.rows[0].hsn === hsn && item.rows[0].category === category && item.rows[0].product === product && item.rows[0].price_minor === price) return { updated: false };
+      await client.query('UPDATE branch_catalog SET product=$4,price_minor=$5,category=$6,hsn=$7,photo=$8,modifiers=$9 WHERE merchant_id=$1 AND branch_id=$2 AND sku=$3',
+        [merchant,branch,sku,product,price,category,hsn,photo,JSON.stringify(options)]);
       await client.query(`INSERT INTO catalog_imports (merchant_id,branch_id,digest,membership_id,version)
         SELECT $1,$2,$3,$4,COALESCE(max(version),0)+1 FROM catalog_imports WHERE merchant_id=$1 AND branch_id=$2`,
         [merchant,branch,randomUUID(),actor]);
@@ -167,7 +173,7 @@ export class CatalogController {
         COALESCE((SELECT max(version) FROM catalog_imports WHERE merchant_id = r.merchant_id AND branch_id = r.branch_id), 0)::text AS version,
         COALESCE((
           SELECT jsonb_agg(jsonb_build_object('sku', c.sku, 'product', c.product, 'barcode', c.barcode,
-            'priceMinor', c.price_minor, 'category', c.category,'hsn',c.hsn, 'photo',c.photo, 'attributes', c.attributes, 'onHand', COALESCE(s.total, 0)) ORDER BY c.sku)
+            'priceMinor', c.price_minor, 'category', c.category,'hsn',c.hsn, 'photo',c.photo, 'modifiers',c.modifiers, 'attributes', c.attributes, 'onHand', COALESCE(s.total, 0)) ORDER BY c.sku)
           FROM branch_catalog c LEFT JOIN LATERAL (
             SELECT sum(quantity) FILTER (WHERE kind <> 'return_damaged') AS total FROM stock_movements mv
             WHERE (mv.merchant_id, mv.branch_id, mv.sku) = (c.merchant_id, c.branch_id, c.sku)

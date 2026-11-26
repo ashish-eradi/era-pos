@@ -17,6 +17,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const buyer = state?.upi?.buyer ?? (Object.values(buyerDetails).some(Boolean) ? buyerDetails : undefined);
   const [destination,setDestination] = useState('');
   const placeOfSupply = state?.upi?.placeOfSupply ?? (destination || catalog?.receiptGstin?.slice(0,2));
+  const [options,setOptions] = useState<Record<string,string[]>>({});
   const [cart, setCart] = useState<Record<string, number>>({});
   const searchInput = useRef<HTMLInputElement>(null);
   const shiftForm = useRef<HTMLFormElement>(null);
@@ -41,6 +42,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       setState(current);
       if (current.upi) {
         setOperationId(current.upi.operationId);
+        setOptions(Object.fromEntries(current.upi.lines.map(line=>[line.sku,line.modifierNames ?? []])));
         setCart(Object.fromEntries(current.upi.lines.map(({ sku, quantity }) => [sku, quantity])));
       }
     }).catch(() => setError('Checkout storage is unavailable'));
@@ -53,7 +55,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const latestReceipt = state?.receipts.find(sale => sale.operationId === lastReceipt);
   const pending = state?.pending ?? 0;
   useEffect(() => window.counter.onShiftChanged(() => {
-    setCart({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setDiscount(false); showClose(false); setOperationId(crypto.randomUUID());
+    setCart({}); setOptions({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setDiscount(false); showClose(false); setOperationId(crypto.randomUUID());
     void window.counter.cashState().then(setState).catch(() => setError('Unable to refresh shift'));
   }), []);
   useEffect(() => {
@@ -86,7 +88,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       }
       if (event.key === 'F10' && state?.shift && !payment) {event.preventDefault(); showClose(true);}
       if (event.key === 'Escape' && !payment && !close && Object.values(cart).some(Boolean) && window.confirm('Clear the current cart?')) {
-        setCart({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setDiscount(false); setOperationId(crypto.randomUUID());
+        setCart({}); setOptions({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setDiscount(false); setOperationId(crypto.randomUUID());
       }
     };
     window.addEventListener('keydown',shortcuts);
@@ -135,12 +137,16 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     return () => window.removeEventListener('keydown', scan, true);
   }, [page, catalog, state?.shift, busy, close, payment]);
   useEffect(() => { if (!Object.values(cart).some(Boolean)) setCustomer(''); },[cart]);
-  const lines = items.filter(({ sku }) => cart[sku]).map(item=>catalogLine(item,cart[item.sku],catalog!));
+  const lines = items.filter(({ sku }) => cart[sku]).map(item => {
+    const selected = (item.modifiers ?? []).filter(m=>options[item.sku]?.includes(m.name)).map(m=>m.name);
+    return catalogLine(item,cart[item.sku],catalog!,selected);
+  });
+  const checkoutLines = lines.map(({sku,quantity,modifiers})=>({sku,quantity,modifierNames:modifiers?.map(m=>m.name)}));
   const discountMinor = discount ? Math.round(Number(reduction)*100) : 0;
   const totals = saleTotals(lines,Number.isSafeInteger(discountMinor) ? discountMinor : 0);
   useEffect(()=>{
     const completed=!!latestReceipt && !lines.length;
-    const rows=lines.map((line,i)=>({product:line.product,quantity:line.quantity,amount:totals.breakdown[i].payable}));
+    const rows=lines.map((line,i)=>({product:[line.product,...(line.modifiers ?? []).map(m=>m.name)].join(" · "),quantity:line.quantity,amount:totals.breakdown[i].payable}));
     const final=completed ? saleTotals(latestReceipt.payload.lines,latestReceipt.payload.discountMinor) : undefined;
     window.counter.updateCustomerDisplay(page==='Sell' && currency && (completed || rows.length) ? {
       currency,lines:rows,total:final?.total ?? totals.total,completed
@@ -179,7 +185,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         const result = await window.counter.closeShift(amount);
         setState(result.state);
         showClose(false);
-        setCart({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination('');
+        setCart({}); setOptions({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination('');
         setOperationId(crypto.randomUUID());
         setNotice(`Shift closed. Expected ${money(result.expected)}. Variance ${money(result.variance)}.`);
       }
@@ -189,11 +195,11 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   async function complete(tenderedMinor: number, discountMinor: number, approval?: string, tender?: 'upi') {
       if (!state?.shift || !catalog) return;
       const id = await window.counter.cashSale({
-        operationId, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor, tenderedMinor, approval, tender, fallback,placeOfSupply,buyer,customerCode,
+        operationId, shiftId: state.shift.id, catalogVersion: catalog.version, lines:checkoutLines, discountMinor, tenderedMinor, approval, tender, fallback,placeOfSupply,buyer,customerCode,
       });
       setTender(''); setReduction('');
       setLastReceipt(id);
-      setCart({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination('');
+      setCart({}); setOptions({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination('');
       setQuery('');
       setDiscount(false);
       setFallback(false);
@@ -215,7 +221,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
 
   function checkUpi(create: boolean) {
     if (!state?.shift || !catalog) return;
-    const input = { operationId, cashPortionMinor:Math.round(Number(cashPart)*100), placeOfSupply,buyer,customerCode, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor: 0, tenderedMinor: 0 };
+    const input = { operationId, cashPortionMinor:Math.round(Number(cashPart)*100), placeOfSupply,buyer,customerCode, shiftId: state.shift.id, catalogVersion: catalog.version, lines:checkoutLines, discountMinor: 0, tenderedMinor: 0 };
     void run(async () => {
       try { await window.counter.upi(create ? input : undefined); }
       finally { setState(await window.counter.cashState()); }
@@ -268,6 +274,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         {!lines.length && state.parked.map(draft => <button key={draft.id} disabled={busy || !!payment} onClick={() => void run(async () => {
           const parked = await window.counter.resumeSale(draft.id);
           if (parked.some(line=>!items.some(item=>item.sku === line.sku))) throw new Error('A parked product is missing from this catalog');
+          setOptions(Object.fromEntries(parked.map(line=>[line.sku,line.modifierNames ?? []])));
           setCart(Object.fromEntries(parked.map(line=>[line.sku,line.quantity])));
           setCustomer(draft.customerCode ?? ''); setOperationId(draft.id); setNotice('Parked sale resumed at current catalog prices.');
         })}>Resume {draft.items} lines · {new Date(draft.parkedAt).toLocaleTimeString()}</button>)}
@@ -279,11 +286,20 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
               {catalog.customers.map(customer=><option key={customer.code} value={customer.code}>{customer.name} · {customer.code}</option>)}
             </select></label>}
             <button type="button" disabled={!!payment || discount} onClick={() => void run(async () => {
-              setState(await window.counter.parkSale(operationId,lines,customerCode));
-              setCart({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setQuery(''); setLastReceipt('');
+              setState(await window.counter.parkSale(operationId,checkoutLines,customerCode));
+              setCart({}); setOptions({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setQuery(''); setLastReceipt('');
               setOperationId(crypto.randomUUID()); setNotice('Sale parked on this register.');
             })}>Park sale</button>
             <ul>{lines.map((line,i) => <li key={line.sku}><b>{line.product}</b><small>{line.sku} · {money(line.unitMinor)} each · {money(totals.breakdown[i].payable)} due</small>
+              {items.find(item=>item.sku===line.sku)?.modifiers?.map(option=><label key={option.name}>
+                <input type="checkbox" disabled={!!payment} checked={!!options[line.sku]?.includes(option.name)}
+                  onChange={event=>{
+                    const checked = event.target.checked;
+                    setOptions(current=>({...current,[line.sku]:checked ? [...(current[line.sku] ?? []),option.name] :
+                      current[line.sku]?.filter(name=>name!==option.name) ?? []}));
+                  }}/>
+                {option.name} +{money(option.priceMinor)} per unit
+              </label>)}
               <label>Quantity<input aria-label={`Quantity for ${line.product}`} type="number" min="1"
                 max={Math.min(1000, items.find(({ sku }) => sku === line.sku)!.onHand)}
                 key={line.quantity} defaultValue={line.quantity} required disabled={!!payment}
@@ -299,7 +315,10 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
                   if (field.validity.valid) setCart((current) => ({ ...current, [line.sku]: quantity }));
                   else field.value = String(line.quantity);
                 }} /></label>
-              <button type="button" disabled={!!payment} onClick={() => setCart((current) => ({ ...current, [line.sku]: Math.max(0, current[line.sku] - 1) }))} aria-label={`Remove one ${line.product}`}>&minus;</button>
+              <button type="button" disabled={!!payment} onClick={() => {
+                if (line.quantity===1) setOptions(current=>({...current,[line.sku]:[]}));
+                setCart(current=>({...current,[line.sku]:Math.max(0,current[line.sku]-1)}));
+              }} aria-label={`Remove one ${line.product}`}>&minus;</button>
               <button type="button" aria-label={`Add one ${line.product}`} disabled={!!payment || line.quantity >= Math.min(1000, items.find(item => item.sku === line.sku)!.onHand)} onClick={() => add(line.sku)}>+</button>
             </li>)}</ul>
             {lines.some(line=>line.gst) && <label>Place of supply<select required disabled={!!payment} value={placeOfSupply ?? ''} onChange={e=>setDestination(e.target.value)}>
