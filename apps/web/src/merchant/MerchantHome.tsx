@@ -29,6 +29,9 @@ function savedSession(): Session | undefined {
   } catch { /* Storage may be unavailable in private browsing. */ }
 }
 
+import { ChartColumn, Tags, Users, Boxes, Undo2, Store, Receipt, Settings, Wallet, Calendar, Plug, LifeBuoy } from 'lucide-react';
+const sectionIcons:Record<string,typeof Store>={Overview:ChartColumn,Catalog:Tags,Customers:Users,Inventory:Boxes,Returns:Undo2,'Team and registers':Store,Sales:Receipt,'Receipt settings':Settings,Payments:Wallet,Subscription:Calendar,Integrations:Plug,Support:LifeBuoy};
+function SectionIcon({name}:{name:string}) {const Icon=sectionIcons[name] ?? Store;return <Icon aria-hidden="true" size={18}/>;}
 export function MerchantHome() {
   const [menu,setMenu] = useState(false);
   const [session, setSession] = useState(savedSession);
@@ -91,9 +94,9 @@ export function MerchantHome() {
         ...(['owner','manager'].includes(session.role) ? ['Customers','Inventory','Returns','Team and registers'] : []),
         ...(['owner','manager','accountant'].includes(session.role) ? ['Sales'] : []),
         ...(session.role === 'owner' ? ['Receipt settings','Payments','Subscription','Integrations','Support'] : [])].map(name =>
-          <button key={name} aria-current={section === name ? 'page' : undefined} onClick={() => {setSection(name);setMenu(false);}}>{name}{name === 'Inventory' && !!stock.data?.length && <span className="stock-count" aria-label={`${stock.data.length} low-stock items`}>{stock.data.length}</span>}</button>)}</nav>
+          <button key={name} aria-current={section === name ? 'page' : undefined} onClick={() => {setSection(name);setMenu(false);}}><SectionIcon name={name}/>{name}{name === 'Inventory' && !!stock.data?.length && <span className="stock-count" aria-label={`${stock.data.length} low-stock items`}>{stock.data.length}</span>}</button>)}</nav>
         <button className="quiet" onClick={() => {setSection('Overview');setSession(undefined);setBranches([]);setRegisters([]);setBranchId('');setBusinessDate('');}}>End local session</button>
-      </aside><article className="desk"><header className="section-head"><h1>{section}</h1>
+      </aside><article className="desk"><header className="section-head"><h1><SectionIcon name={section}/> {section}</h1>
       <label>Branch<select value={branch?.id ?? ''} onChange={e=>{setBranchId(e.target.value);setBusinessDate('');}}>
       {branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label></header>
       {section === 'Overview' && branch && (session.role === 'cashier' ? <p>Use your paired counter to open a shift and sell in {branch.name}.</p> : <>

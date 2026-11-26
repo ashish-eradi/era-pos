@@ -93,7 +93,7 @@ export function CatalogImport({ path, token }: { path: string; token: string }) 
           <label>Price (minor units)<input name="price" required type="number" min="0" max="1000000000" defaultValue={item.priceMinor} /></label>
         </Action></td></tr>)}</tbody></table><details>
     <summary>Import catalog and opening stock</summary>
-    <p>Add an optional final category column to group products at checkout. Prices use minor units. Leave opening stock blank to preserve previously recorded stock.</p>
+    <p>Append category to group products or mrp_minor to display the maximum retail price and savings. Prices use minor units. Leave opening stock blank to preserve previously recorded stock.</p>
     <Action title="Preview CSV" run={async (form) => {
       setPreview(undefined);
       const file = form.get('csv');

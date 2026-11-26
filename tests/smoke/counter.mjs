@@ -257,13 +257,15 @@ async function launch(activate = false,resumePayment=false) {
             } else if (next === 2 && checkout.textContent.includes('0 pending') && add?.querySelector('img')?.naturalWidth === 1) {
               window.checkoutStep = 3;
               add.click();
-            } else if (next === 3 && button('Start UPI payment')) {
+            } else if (next === 3 && button('Split')) {
               window.checkoutStep = 4;
               const customer=checkout.querySelector('select[name=customerCode]');
               if (customer.value) throw new Error('A new sale must default to walk-in');
               customer.value='C-1';
               customer.dispatchEvent(new Event('change',{bubbles:true}));
               [...checkout.querySelectorAll('label')].find(label=>label.textContent.includes('Gift wrap') && label.querySelector('input[type=checkbox]')).querySelector('input').click();
+              button('Split').click();window.checkoutStep=3.25;
+            } else if(next===3.25 && document.querySelector('input[name=cashPart]')) {
               const field=document.querySelector('input[name=cashPart]');
               Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,'30');
               field.dispatchEvent(new Event('input',{bubbles:true}));

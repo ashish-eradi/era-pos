@@ -27,7 +27,9 @@ export async function mockRazorpay() {
       for await (const chunk of request) raw += chunk;
       if (url.pathname.endsWith('/Messages.json')) {
         assert.equal(request.headers.authorization,'Basic '+Buffer.from('test-account:test-token').toString('base64'));
-        delivered.push(new URLSearchParams(raw).get('Body'));return send(201,{sid:'SMtest'});
+        const fields=new URLSearchParams(raw);
+        if (fields.get('To')?.startsWith('whatsapp:')) assert.equal(fields.get('From'),'whatsapp:+15555550102');
+        delivered.push(fields.get('Body'));return send(201,{sid:'SMtest'});
       }
       const body = raw ? JSON.parse(raw) : undefined;
       if (url.pathname === '/emails') {
@@ -87,7 +89,7 @@ export async function mockRazorpay() {
     merchant, webhookSecret, links, emailCodes,delivered,
     counts: () => ({ createCalls, refundCalls }),
     env: {
-      ERA_TWILIO_ACCOUNT:'test-account',ERA_TWILIO_TOKEN:'test-token',ERA_SMS_FROM:'+15555550100',
+      ERA_TWILIO_ACCOUNT:'test-account',ERA_TWILIO_TOKEN:'test-token',ERA_SMS_FROM:'+15555550100',ERA_WHATSAPP_FROM:'+15555550102',
       ERA_RECEIPT_TEST_ORIGIN:`http://127.0.0.1:${server.address().port}`,
       NODE_ENV: 'test', ERA_RAZORPAY_TEST_ORIGIN: `http://127.0.0.1:${server.address().port}`,
       ERA_SIGNUP_TEST_ORIGIN: `http://127.0.0.1:${server.address().port}`, ERA_SIGNUP_FROM:'sender@example.test', ERA_RESEND_KEY:'smoke-email',
@@ -191,11 +193,11 @@ export async function checkPayments(port, connectionString, provider) {
       tenderedMinor:12000,lines:[{...sale.payload.lines[0],unitMinor:12000}] } };
     assert.equal((await call('devices/cash-sales', 201, { deviceId, operation: digital })).status, 'committed');
     assert.equal((await call('devices/cash-sales', 201, { deviceId, operation: digital })).status, 'replayed');
-    for (const [channel,recipient] of [['email','buyer@example.test'],['sms','+15555550101']]) {
+    for (const [channel,recipient] of [['email','buyer@example.test'],['sms','+15555550101'],['whatsapp','+15555550101']]) {
       const delivery={deviceId,id:second,channel,recipient};
       await call('devices/send-receipt',201,delivery);await call('devices/send-receipt',201,delivery);
     }
-    assert.equal(provider.delivered.length,2);
+    assert.equal(provider.delivered.length,3);
     assert.ok(provider.delivered.every(message=>message.includes('Notebook') && message.includes('UPI') && message.includes('Cash')));
     const dashboard = await call(path, 200, undefined, token);
     assert.equal(dashboard.attempts.find((candidate) => candidate.operationId === second).overpayment, false);

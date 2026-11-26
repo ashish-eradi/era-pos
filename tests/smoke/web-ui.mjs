@@ -156,8 +156,8 @@ async function main() {
     await waitFor("!document.querySelector('tbody img')");
     await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Customers').click()");
     await waitFor("document.body.innerText.includes('Add customer')");
-    await run(`const form=document.querySelector('input[name=code]').form;
-      form.closest('details').open=true;
+    await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Add customer').click()");
+    await run(`const form=document.querySelector('dialog[open] input[name=code]').form;
       form.elements.code.value='C-1';form.elements.name.value='Test shopper';form.requestSubmit();`);
     await waitFor("document.body.innerText.includes('Purchase history') && document.querySelector('.desk section details:last-child summary')");
     await run("document.querySelector('.desk section details:last-child summary').click()");

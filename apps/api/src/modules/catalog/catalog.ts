@@ -61,7 +61,7 @@ export class CatalogController {
     return transaction(this.database, async client => {
       await owner(client, merchant, authorization);
       const attributes = Object.fromEntries(Object.entries(query).map(([key,value]) => [text(key,'attribute',40),text(value,'value',80)]));
-      return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",category,hsn,attributes,photo,modifiers,
+      return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",mrp_minor AS "mrpMinor",category,hsn,attributes,photo,modifiers,
         CASE m.country_code WHEN 'IN' THEN 'INR' ELSE 'USD' END AS currency
         FROM branch_catalog c JOIN merchants m ON m.id=c.merchant_id
         WHERE c.merchant_id=$1 AND c.branch_id=$2 AND c.attributes @> $3::jsonb ORDER BY sku`, [merchant,branch,JSON.stringify(attributes)])).rows;
@@ -140,12 +140,13 @@ export class CatalogController {
         await client.query('INSERT INTO catalog_barcodes VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
           [scope[0], item.barcode, item.sku]);
         await client.query(`
-          INSERT INTO branch_catalog (merchant_id, branch_id, sku, product, barcode, price_minor, attributes, category)
-          VALUES ($1,$2,$3,$4,$5,$6,$7, NULLIF($8, ''))
+          INSERT INTO branch_catalog (merchant_id, branch_id, sku, product, barcode, price_minor, attributes, category, mrp_minor)
+          VALUES ($1,$2,$3,$4,$5,$6,$7, NULLIF($8, ''),$9)
           ON CONFLICT (merchant_id, branch_id, sku) DO UPDATE SET
             product = EXCLUDED.product, price_minor = EXCLUDED.price_minor, attributes = EXCLUDED.attributes,
+            mrp_minor = CASE WHEN $10 THEN EXCLUDED.mrp_minor ELSE branch_catalog.mrp_minor END,
             category = CASE WHEN $8::text IS NULL THEN branch_catalog.category ELSE EXCLUDED.category END
-        `, [...scope, item.sku, item.product, item.barcode, item.priceMinor, JSON.stringify(item.attributes), item.category ?? null]);
+        `, [...scope, item.sku, item.product, item.barcode, item.priceMinor, JSON.stringify(item.attributes), item.category ?? null,item.mrpMinor ?? null,item.mrpMinor !== undefined]);
         if (item.openingStock !== null) {
           await client.query(`
             INSERT INTO stock_movements (merchant_id, branch_id, sku, id, kind, quantity)
@@ -167,7 +168,7 @@ export class CatalogController {
     const deviceId = uuid(parseInput(deviceInput,input).deviceId, 'device ID');
     const { rows } = await this.database.query(`
       SELECT r.merchant_id AS "merchantId", r.branch_id AS "branchId", r.id AS "registerId",
-        COALESCE((SELECT jsonb_agg(jsonb_build_object('code',c.code,'name',c.name) ORDER BY c.name,c.code)
+        COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('code',c.code,'name',c.name,'phone',c.phone)) ORDER BY c.name,c.code)
           FROM customers c WHERE c.merchant_id=r.merchant_id AND c.branch_id=r.branch_id),'[]'::jsonb) AS customers,
         r.invoice_series::text AS "invoiceSeries", m.gst_rates AS "gstRates",m.gst_inclusive AS "gstInclusive",
         m.receipt_brand || jsonb_build_object('legalName',coalesce(m.legal_name,m.name)) AS brand,m.name AS "merchantName", m.receipt_address AS "receiptAddress", m.receipt_gstin AS "receiptGstin",
@@ -175,7 +176,7 @@ export class CatalogController {
         COALESCE((SELECT max(version) FROM catalog_imports WHERE merchant_id = r.merchant_id AND branch_id = r.branch_id), 0)::text AS version,
         COALESCE((
           SELECT jsonb_agg(jsonb_build_object('sku', c.sku, 'product', c.product, 'barcode', c.barcode,
-            'priceMinor', c.price_minor, 'category', c.category,'hsn',c.hsn, 'photo',c.photo, 'modifiers',c.modifiers, 'attributes', c.attributes, 'onHand', COALESCE(s.total, 0)) ORDER BY c.sku)
+            'mrpMinor', c.mrp_minor,'priceMinor', c.price_minor, 'category', c.category,'hsn',c.hsn, 'photo',c.photo, 'modifiers',c.modifiers, 'attributes', c.attributes, 'onHand', COALESCE(s.total, 0)) ORDER BY c.sku)
           FROM branch_catalog c LEFT JOIN LATERAL (
             SELECT sum(quantity) FILTER (WHERE kind <> 'return_damaged') AS total FROM stock_movements mv
             WHERE (mv.merchant_id, mv.branch_id, mv.sku) = (c.merchant_id, c.branch_id, c.sku)

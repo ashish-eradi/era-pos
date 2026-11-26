@@ -8,11 +8,12 @@ export type { CashLineV1, CashReceiptV1, ItemModifier } from './cash';
 
 export { saleTotals, catalogLine, gstStates, gstComponents, validBuyer } from './gst';
 export type { ReceiptBrand, InvoiceBuyer } from './gst';
+export { receiptText } from './receipt-text';
 export { returnTenderLabel } from './returns';
 export type CurrencyV1 = 'INR' | 'USD';
 
 export type CatalogSnapshotV1 = {
-  customers?: Array<{ code: string; name: string }>;
+  customers?: Array<{ code: string; name: string; phone?: string }>;
   invoiceSeries?: string;
   gstRates?: Record<string,number>;
   gstInclusive?:boolean;
@@ -34,6 +35,7 @@ export type CatalogSnapshotV1 = {
     photo?: string | null;
     modifiers?: import('./cash').ItemModifier[];
     priceMinor: number;
+    mrpMinor?: number | null;
     attributes: Record<string, string>;
     onHand: number;
   }>;

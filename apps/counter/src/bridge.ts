@@ -39,7 +39,7 @@ export type CustomerSale = { currency:'INR'|'USD'; lines:{product:string;quantit
 export type Cashier = { id:string; name:string };
 export type CashierAccess = { staff:Cashier[]; active?:Cashier };
 export interface CounterBridge {
-  sendReceipt(id:string,channel:'sms'|'email',recipient:string):Promise<void>;
+  sendReceipt(id:string,channel:'sms'|'email'|'whatsapp'|'whatsapp-draft',recipient:string):Promise<void>;
   openCustomerDisplay():Promise<void>;
   updateCustomerDisplay(sale:CustomerSale|null):void;
   cashierAccess():Promise<CashierAccess>;

@@ -17,6 +17,8 @@ declare global {
 }
 
 function Counter() {
+  const [dark,setDark]=useState(()=>localStorage.getItem('counter-theme')==='dark');
+  useEffect(()=>{document.documentElement.dataset.theme=dark?'dark':'light';localStorage.setItem('counter-theme',dark?'dark':'light');},[dark]);
   const [access,setAccess]=useState<CashierAccess>({staff:[]});
   const pinInput = useRef<HTMLInputElement>(null);
   const [started,setStarted]=useState(false);
@@ -92,7 +94,7 @@ function Counter() {
 
 
   const setup = !paired || !authorized || !catalog;
-  return <><header className="mast"><span className="brand">ERA POS</span><span>{paired ? `Branch ${paired.branchId} · Register ${paired.registerId}` : 'Register setup'}</span></header>
+  return <><header className="mast"><span className="brand">ERA POS</span><span>{paired ? `Branch ${paired.branchId} · Register ${paired.registerId}` : 'Register setup'}</span><button aria-pressed={dark} onClick={()=>setDark(value=>!value)}>Dark mode</button></header>
     <main className="canvas">
     {paired && !access.active && <section className="panel" aria-labelledby="unlock-title"><h2 id="unlock-title">Unlock counter</h2>
       {access.staff.length ? <form onSubmit={unlock}><label>Cashier<select required name="cashier">{access.staff.map(person=><option key={person.id} value={person.id}>{person.name}</option>)}</select></label>

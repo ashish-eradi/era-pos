@@ -5,6 +5,7 @@ const columns = ['sku', 'product', 'barcode', 'price_minor', 'opening_stock', 'a
 
 export interface CatalogRow {
   category?: string;
+  mrpMinor?: number | null;
   sku: string;
   product: string;
   barcode: string;
@@ -38,9 +39,11 @@ export function previewCatalog(csv: string) {
   const issues: Array<{ row: number; message: string }> = [];
   try {
     const [header, ...records] = parse(csv, { bom: true, skip_empty_lines: true, trim: true, relax_column_count: true }) as string[][];
-    const categorized = header?.length === columns.length + 1 && header.at(-1) === 'category';
-    if (!header || (!categorized && header.length !== columns.length) || columns.some((column, index) => header[index] !== column)) {
-      issues.push({ row: 1, message: `Expected columns: ${columns.join(', ')} (optional final column: category)` });
+    const extra = header?.slice(columns.length) ?? [];
+    const categorized = extra.includes('category');
+    const withMrp = extra.includes('mrp_minor');
+    if (!header || extra.some(key=>!['category','mrp_minor'].includes(key)) || new Set(extra).size!==extra.length || columns.some((column, index) => header[index] !== column)) {
+      issues.push({ row: 1, message: `Expected columns: ${columns.join(', ')} (optional trailing columns: category, mrp_minor)` });
     } else if (!records.length || records.length > 500) {
       issues.push({ row: 1, message: 'Provide between 1 and 500 data rows' });
     } else {
@@ -52,7 +55,10 @@ export function previewCatalog(csv: string) {
         const openingStock = stock === '' ? null : whole(stock);
         const details = attributes(variant);
         const problems = [];
-        const category = values[6]?.trim() ?? '';
+        const category = values[header.indexOf('category')]?.trim() ?? '';
+        const mrp = values[header.indexOf('mrp_minor')];
+        const mrpMinor = mrp ? whole(mrp) : null;
+        if (withMrp && mrpMinor===undefined) problems.push('MRP must be blank or whole minor units');
         if (values.length !== header.length) problems.push('column count must match the header');
         if (category.length > 80 || category.includes('\0')) problems.push('invalid category');
         if (!sku || sku.length > 80 || skus.has(sku)) problems.push('invalid or duplicate SKU');
@@ -67,7 +73,7 @@ export function previewCatalog(csv: string) {
         }
         skus.add(sku);
         barcodes.add(barcode);
-        rows.push({ sku, product, barcode, priceMinor, openingStock, attributes: details, ...(categorized && { category }) });
+        rows.push({ sku, product, barcode, priceMinor, openingStock, attributes: details, ...(categorized && { category }), ...(withMrp && {mrpMinor}) });
       });
     }
   } catch {

@@ -14,6 +14,10 @@ describe('GST invoice arithmetic',()=>{
     expect(gstComponents(101,'27','29')).toEqual({IGST:101});
     expect(gstComponents(101,'04','04')).toEqual({CGST:50,UTGST:51});
   });
+  it('compares MRP with the final tax-inclusive payable after a discount',()=>{
+    expect(saleTotals([{...item,quantity:1,unitMinor:10000,mrpMinor:12500,gst:{...gst,inclusive:false}}],1000).savings).toBe(1880);
+    expect(saleTotals([item],0).savings).toBe(0);
+  });
   it('validates tender against the GST-inclusive payable amount',()=>{
     const receipt={kind:'cash_sale',shiftId:'01234567-0123-4123-9123-012345678901',currency:'INR',lines:[{...item,gst:{...gst,inclusive:false}}],
       receiptGstin:'27ABCDE1234F1Z5',placeOfSupply:'29',invoiceNumber:'3-1',discountMinor:0,tenderedMinor:27848,tender:'upi'};

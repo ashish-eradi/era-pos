@@ -243,7 +243,7 @@ export async function syncCash(database: DatabaseSync, id?: string): Promise<Cas
   return cashState(database);
 }
 
-export async function sendReceipt(db:DatabaseSync,id:string,channel:'sms'|'email',recipient:string) {
+export async function sendReceipt(db:DatabaseSync,id:string,channel:'sms'|'email'|'whatsapp',recipient:string) {
   receiptToPrint(db,id);
   const response=await post(db,'/v1/devices/send-receipt',{deviceId:register(db).deviceId,id,channel,recipient});
   if (!response.ok) {
