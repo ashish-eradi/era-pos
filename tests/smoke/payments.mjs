@@ -323,6 +323,55 @@ export async function checkPayments(port, connectionString, provider) {
     assert.equal(report.settlements[0].payment_id, 'pay_test1');
     assert.equal(report.providerRefunds.length, 2);
     console.log('Duplicate delivery, supervised count, replayable cash close and branch reconciliation passed');
+    const otherRegister = randomUUID();
+    const otherDevice = randomUUID();
+    const otherProof = randomBytes(32).toString('base64url');
+    const otherShift = randomUUID();
+    const crossSaleId = randomUUID();
+    await db.query(`INSERT INTO registers(merchant_id,id,branch_id,name,status,device_id,activated_at,pairing_digest)
+      VALUES ($1,$2,$3,'Returns counter','active',$4,now(),$5)`,[merchant,otherRegister,receivingBranch,otherDevice,digest(otherProof)]);
+    await call('devices/upi',201,{...attempt,operationId:crossSaleId});
+    pay(crossSaleId,3);
+    assert.equal((await call('devices/upi',201,{deviceId,operationId:crossSaleId})).status,'paid');
+    const crossSale = {...digital,operationId:crossSaleId,payload:{...digital.payload,shiftId:randomUUID()}};
+    assert.equal((await call('devices/cash-sales',201,{deviceId,operation:crossSale})).status,'committed');
+    const remoteDraft = createReturn(crossSaleId,'damaged',{deviceId:otherDevice,shiftId:otherShift});
+    const localDraft = createReturn(crossSaleId,'sellable');
+    await call('devices/returns',201,localDraft);
+    const quote = await call('devices/returns',201,remoteDraft,otherProof);
+    assert.deepEqual(quote.crossStore,{soldAt:'Store',returnedAt:'Second store',saleBranchId:branch,returnBranchId:receivingBranch});
+    assert.equal(quote.creditMinor,12000);
+    assert.equal(quote.cashRefundMinor,2000);
+    const receivingApprove = receivingPath+'/returns/'+remoteDraft.id+'/approve';
+    await call(receivingApprove,404,{},managerToken);
+    await call(returns+'/'+remoteDraft.id+'/approve',404,{},token);
+    await call(receivingApprove,502,{},token);
+    await approve(localDraft,409);
+    assert.equal((await call(receivingApprove,201,{},token)).status,'complete');
+    await call(receivingApprove,201,{},token);
+    await approve(localDraft,409);
+    await call('devices/returns',201,{deviceId,id:localDraft.id,action:'cancel'});
+    const receivedStock = (await call(receivingInventory,200,undefined,token)).items[0];
+    assert.equal(receivedStock.damaged,1);
+    assert.equal(receivedStock.onHand,5);
+    assert.equal((await call(inventory,200,undefined,token)).items[0].onHand,1);
+    const linkedRefund = await db.query('SELECT register_id,operation_id,amount_minor FROM upi_refunds WHERE merchant_id=$1 AND id=$2',[merchant,remoteDraft.id]);
+    assert.equal(linkedRefund.rows[0].register_id,register);
+    assert.equal(linkedRefund.rows[0].operation_id,crossSaleId);
+    assert.equal(Number(linkedRefund.rows[0].amount_minor),10000);
+    const sameId = {...sale,branchId:receivingBranch,registerId:otherRegister,operationId:crossSaleId,payload:{...sale.payload,shiftId:otherShift}};
+    assert.equal((await call('devices/cash-sales',201,{deviceId:otherDevice,operation:sameId},otherProof)).status,'committed');
+    const ambiguous = {...remoteDraft,id:randomUUID()};
+    await call('devices/returns',409,ambiguous,otherProof);
+    await call('devices/returns',409,{...ambiguous,saleRegisterId:register},otherProof);
+    const localQuote = await call('devices/returns',201,{...ambiguous,saleRegisterId:otherRegister},otherProof);
+    assert.equal(localQuote.crossStore,undefined);
+    await call('devices/returns',201,{deviceId:otherDevice,id:ambiguous.id,action:'cancel'},otherProof);
+    await call('devices/shift-close',201,{...close,id:otherShift,deviceId:otherDevice,floatMinor:10000,countedMinor:18000,receiptCount:1},otherProof);
+    const receivingReport = await call(receivingPath+'/daily-close?date='+day,200,undefined,token);
+    assert.equal(receivingReport.shifts[0].expected_minor,'18000');
+    assert.equal(receivingReport.returns[0].id,remoteDraft.id);
+    console.log('Cross-store split refund, original register selection, damaged stock and receiving drawer reconciled');
     for (const [role,worker] of Object.entries(workers)) {
       await db.query('INSERT INTO platform_operators VALUES ($1,$2,$2)', [worker.id,role]);
       await db.query("INSERT INTO platform_sessions VALUES ($1,$2,now() + interval '1 hour')", [digest(worker.token),worker.id]);
@@ -332,6 +381,7 @@ export async function checkPayments(port, connectionString, provider) {
     const finance = workers.finance.token;
     const admin = workers.admin.token;
     await call(`${billing}/invoices`, 403, invoice, workers.support.token);
+    await call(`${billing}/registers/${otherRegister}/revoke`,201,{reason:'Return test complete',acknowledgeUnsyncedRisk:true},admin);
     const issued = await call(`${billing}/invoices`, 201, invoice, finance);
     assert.deepEqual(await call(`${billing}/invoices`, 201, invoice, finance), { id: issued.id, replayed: true });
     const invoicePath = `${billing}/invoices/${issued.id}`;
@@ -370,7 +420,7 @@ export async function checkPayments(port, connectionString, provider) {
     await call('devices/activate', 201, { code: activation.code, deviceId: replacementDevice, pairingProof: replacementProof });
 
     const recovery = await call('devices/recovery-receipts', 201, { deviceId: replacementDevice }, replacementProof);
-    assert.equal(recovery.receipts.length, 3);
+    assert.equal(recovery.receipts.length, 4);
     assert.ok(recovery.receipts.every((receipt) => receipt.registerId === register && receipt.payload.kind === 'cash_sale'));
     const page = recovery.receipts.at(-1);
     assert.deepEqual((await call('devices/recovery-receipts', 201, { deviceId: replacementDevice,
@@ -390,7 +440,7 @@ export async function checkPayments(port, connectionString, provider) {
     assert.equal(archive.stockTransfers.length,2);
     assert.equal(archive.stockTransferReceipts.length,2);
     assert.equal(archive.purchaseOrders.length,2);
-    assert.equal(archive.sales.length, 3);
+    assert.equal(archive.sales.length, 5);
     assert.equal(archive.subscriptionPayments.length, 2);
     assert.equal(JSON.stringify(archive).includes(proof), false);
     console.log('Finance permissions, payment retries, renewal with queued sales and closure archive passed');

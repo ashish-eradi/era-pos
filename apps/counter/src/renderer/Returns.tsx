@@ -25,6 +25,7 @@ export function Returns({ open, initialId }: { open: boolean; initialId: string 
     const draft: ReturnRequest = {
       id: crypto.randomUUID(),
       saleId: String(data.get('saleId')).trim(),
+      ...(data.get('saleRegisterId') && {saleRegisterId:String(data.get('saleRegisterId')).trim()}),
       lines: [{ sku: String(data.get('sku')).trim(), quantity: Number(data.get('quantity')),
         disposition: data.get('disposition') === 'damaged' ? 'damaged' : 'sellable' }],
       reason: String(data.get('reason')).trim(),
@@ -42,7 +43,9 @@ export function Returns({ open, initialId }: { open: boolean; initialId: string 
     {!open && <p>Open a shift to request a return.</p>}
     {open && <form onSubmit={submit}><fieldset disabled={busy}>
       <legend>Request approval</legend>
+      <p>Use a synced receipt from any branch of this merchant.</p>
       <label>Original receipt ID <input name="saleId" defaultValue={initialId} required /></label>
+      <details><summary>Add the original register ID (if requested)</summary><label>Original register ID <input name="saleRegisterId" maxLength={120}/></label></details>
       <label>Return SKU <input name="sku" required /></label>
       <label>Quantity <input name="quantity" type="number" min="1" max="1000" defaultValue="1" required /></label>
       <label>Condition <select name="disposition"><option value="sellable">Sellable</option><option value="damaged">Damaged</option></select></label>
@@ -60,6 +63,7 @@ export function Returns({ open, initialId }: { open: boolean; initialId: string 
         <summary>{draft.lines.map(({ sku }) => sku).join(', ')} · {status ?? 'Unconfirmed request'}</summary>
         <p>Return ID {draft.id}</p>
         <p>{draft.reason}</p>
+        {receipt?.crossStore && <p>Sold at {receipt.crossStore.soldAt} · Returned at {receipt.crossStore.returnedAt}</p>}
         {receipt && <p>{difference < 0 ? 'Refund' : difference > 0 ? 'Collect' : 'Even exchange'} {amount} · {returnTenderLabel(receipt)}</p>}
         {status === 'requested' && <p>Ask the manager to approve this return in the merchant workspace.</p>}
         {(!status || status === 'requested' || status === 'pending_refund') && <>

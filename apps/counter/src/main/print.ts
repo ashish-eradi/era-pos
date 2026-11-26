@@ -31,6 +31,7 @@ export async function printReturn(receipt: ReturnReceipt): Promise<void> {
     <style>body{font:14px sans-serif;max-width:76mm;margin:6mm auto}small{overflow-wrap:anywhere}</style>
     <h1>${replacement ? 'Exchange' : 'Return'} receipt</h1>
     <small>Return ${escape(receipt.id)}<br>Original receipt ${escape(receipt.saleId)}<br>${escape(receipt.completedAt ?? '')}</small>
+    ${receipt.crossStore ? '<p>Sold at '+escape(receipt.crossStore.soldAt)+' · Returned at '+escape(receipt.crossStore.returnedAt)+'</p>' : ''}
     <p>${escape(receipt.reason)}</p><ul>${rows}</ul>
     ${replacement ? `<p>Replacement ${escape(replacement.product)} × ${replacement.quantity} · ${money(saleTotals([replacement],0).total)}</p>` : ''}
     <p>Total credit ${money(receipt.creditMinor)}</p>

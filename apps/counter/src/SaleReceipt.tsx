@@ -30,6 +30,6 @@ export function SaleReceipt({ sale }: { sale: SyncRequestV1<CashReceiptV1> }) {
       {receipt.tender !== 'upi' && <><dt>Change</dt><dd>{money(receipt.tenderedMinor-total)}</dd></>}</dl>
     <footer><QRCodeSVG value={sale.operationId} size={112} marginSize={4} title="Receipt ID for returns"/>
       {receipt.invoiceNumber && <p>Reverse charge: No</p>}
-      <small>{sale.operationId}</small><p>{brand?.footer || 'Thank you'}</p>{brand?.returnPolicy && <p>{brand.returnPolicy}</p>}</footer>
+      <small>{sale.operationId}</small><small>Register {sale.registerId}</small><p>{brand?.footer || 'Thank you'}</p>{brand?.returnPolicy && <p>{brand.returnPolicy}</p>}</footer>
   </article>;
 }

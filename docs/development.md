@@ -131,7 +131,9 @@ Open **Register → Open customer display** for the customer screen. From a sync
 
 Sync the original sale, open a shift, and request a return on the counter using the receipt ID and SKU. An owner or assigned manager approves it in the merchant workspace. The counter checks the result and can print the completed return. For a cash difference, the cashier handles cash on completion. If a UPI refund response is delayed, use **Check provider refund** on the original request. A shift with an unresolved return stays open. Download the catalog after syncing to pick up current stock.
 
-Returns use the original price and allocate discounts in minor units across partial quantities. Current sales have zero captured tax. Damaged items are recorded separately from sellable stock.
+A counter can accept a synced receipt from another branch of the same merchant. The receiving branch must carry the returned SKUs. Its owner or assigned manager approves the request, its register handles the cash difference, and its inventory receives the goods. UPI refunds follow the original payment. If two registers used the same receipt ID, enter the original register ID from the receipt.
+
+Returns use the original sale prices and captured taxes and allocate discounts in minor units across partial quantities. Damaged items are recorded separately from sellable stock.
 
 ### Inventory and daily close
 

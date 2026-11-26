@@ -71,6 +71,9 @@ async function main() {
         path.endsWith('/branches') ? ['Central','West'].map(id=>({id,name:id,timezone:'UTC',catalogDefaults:[]})) :
         path.endsWith('/inventory') ? {items:[{sku:'TEA',product:'Tea',onHand:5,damaged:0,threshold:null}],documents:[],orders:purchaseOrders,
           stores:['Central','West'].filter(id=>!path.includes('/'+id+'/')).map(id=>({id,name:id})),transfers:transfers.map(t=>({...t,incoming:path.includes('/Central/')}))} :
+        path.endsWith('/returns') ? [{id:'remote-return',saleId:'origin-sale',registerId:'A',requestedAt:'2026-11-24T10:00:00Z',
+          status:'requested',currency:'INR',reason:'Damaged',tender:'cash',differenceMinor:-500,lines:[{sku:'TEA',product:'Tea',quantity:1,disposition:'damaged'}],
+          crossStore:{soldAt:'West',returnedAt:'Central',saleBranchId:'West',returnBranchId:'Central'}}] :
         path.endsWith('/customers') ? [...customers.values()] :
         path.endsWith('/C-1/purchases') ? [{id:'linked-sale',register:'A',occurredAt:'2026-11-24T10:00:00Z',currency:'INR',totalMinor:500,lines:[{sku:'TEA',product:'Tea',quantity:1}]}] :
         path.endsWith('/dashboard') ? {currency:'INR',returns:0,products:[],categories:[],buckets:[],
@@ -175,6 +178,11 @@ async function main() {
       const arrival=document.querySelector('[aria-label="Received quantity for TEA"]').form;
       arrival.elements.reference.value='ARR-1';arrival.elements['quantity-0'].value='3';arrival.requestSubmit();`);
     await waitFor("document.body.innerText.includes('TX-1 · From West · Received')");
+    await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Returns').click()");
+    await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Load returns').click()");
+    await waitFor("document.body.innerText.includes('remote-return')");
+    await run("[...document.querySelectorAll('summary')].find(s=>s.textContent.includes('remote-return')).click()");
+    await waitFor("document.body.innerText.includes('Sold at West · Returned at Central') && document.body.innerText.includes('Approve return')");
     win.setContentSize(390,844);
     await waitFor("document.querySelector('.menu-trigger').offsetWidth > 0");
     await run("document.querySelector('.menu-trigger').click()");

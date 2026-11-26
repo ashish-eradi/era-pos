@@ -5,6 +5,7 @@ export type ReturnSelection = { sku: string; quantity: number; disposition: 'sel
 export type ReturnRequest = {
   id: string;
   saleId: string;
+  saleRegisterId?: string;
   reason: string;
   lines: ReturnSelection[];
   replacement?: { sku: string; quantity: number };
@@ -12,6 +13,7 @@ export type ReturnRequest = {
 export type ReturnReceipt = {
   id: string;
   saleId: string;
+  crossStore?: {soldAt:string; returnedAt:string; saleBranchId:string; returnBranchId:string};
   currency: CurrencyV1;
   reason: string;
   status: 'requested' | 'pending_refund' | 'complete' | 'failed' | 'cancelled';
