@@ -6,13 +6,13 @@ import { deviceScope } from '../merchant/branch-access';
 import { MERCHANT_DATABASE } from '../merchant/merchant.controller';
 import { digest,email,record,text,transaction,uuid } from '../onboarding/shared';
 
-function receiptText(receipt:CashReceiptV1,id:string,date:Date) {
+function receiptText(receipt:CashReceiptV1,id:string,date:Date,register:string) {
   const {total,breakdown}=saleTotals(receipt.lines,receipt.discountMinor);
   const format=new Intl.NumberFormat('en',{style:'currency',currency:receipt.currency});
   const money=(amount:number)=>format.format(amount/100);
   const parts=[receipt.merchantName || 'Sale receipt',receipt.brand?.legalName,receipt.brand?.header,receipt.receiptAddress,
     receipt.receiptGstin && 'GSTIN '+receipt.receiptGstin,receipt.invoiceNumber && 'Invoice '+receipt.invoiceNumber,
-    receipt.placeOfSupply && 'Place of supply '+receipt.placeOfSupply,date.toISOString(),'Receipt '+id];
+    receipt.placeOfSupply && 'Place of supply '+receipt.placeOfSupply,date.toISOString(),'Receipt '+id,'Register '+register];
   for (const [i,line] of receipt.lines.entries()) {
     parts.push(line.quantity+' × '+line.product+' @ '+money(line.unitMinor)+' = '+money(breakdown[i].payable));
     for (const m of line.modifiers ?? []) parts.push(m.name+' +'+money(m.priceMinor)+' each');
@@ -58,7 +58,7 @@ export class DigitalReceipts {
           Date.now()-existing.created_at.getTime()>=86400000)) throw new ConflictException('Delivery is pending confirmation. Check the provider before resending.');
       if (channel==='email' ? !from || !process.env.ERA_RESEND_KEY : !smsAccount || !process.env.ERA_TWILIO_TOKEN || !process.env.ERA_SMS_FROM)
         throw new ServiceUnavailableException('Receipt delivery provider is not configured');
-      const body=receiptText(sale.rows[0].receipt,id,sale.rows[0].occurred_at);
+      const body=receiptText(sale.rows[0].receipt,id,sale.rows[0].occurred_at,register);
       if (channel==='sms' && body.length>1600) throw new BadRequestException('This receipt exceeds the SMS limit. Select email.');
       await client.query(`INSERT INTO receipt_deliveries(merchant_id,register_id,operation_id,channel,recipient_hash,status)
         VALUES ($1,$2,$3,$4,$5,'sending') ON CONFLICT(merchant_id,register_id,operation_id,channel,recipient_hash)

@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
 import { useMerchantData } from './useMerchantData';
+import { tallyExport, type TallyReport } from './tally';
 
 type Row = Record<string, unknown>;
 type Shift = Row & {
   id: string; register_id: string; closed_at: string; counted_minor: string; expected_minor: string;
   variance_minor: string; approved_by: string | null; approval_note: string | null;
 };
-type Report = {
+type Report = TallyReport & {
   currency:string; date: string; provisional: boolean; grossMinor: string; netMinor: string;
-  registers: Row[]; sales: Row[]; returns: Row[]; shifts: Shift[]; settlements: Row[]; providerRefunds: Row[];
+  registers: Row[]; shifts: Shift[]; settlements: Row[]; providerRefunds: Row[];
 };
 
 function cell(value: unknown) {
@@ -29,10 +30,14 @@ function download(report: Report) {
   for (const [name, entries] of records) {
     for (const item of entries) rows.push([name,...columns.map((key) => (item as Row)[key])].map(cell).join(','));
   }
-  const address = URL.createObjectURL(new Blob([rows.join('\r\n')],{ type: 'text/csv;charset=utf-8' }));
+  saveFile(rows.join('\r\n'),'text/csv',`branch-close-${report.date}.csv`);
+}
+
+function saveFile(contents: string, type: string, filename: string) {
+  const address = URL.createObjectURL(new Blob([contents],{ type: type+';charset=utf-8' }));
   const link = document.createElement('a');
   link.href = address;
-  link.download = `branch-close-${report.date}.csv`;
+  link.download = filename;
   link.click();
   setTimeout(() => URL.revokeObjectURL(address),1000);
 }
@@ -69,6 +74,13 @@ export function DailyClose({ path, token, timezone, canApprove, initialDate }: {
         {report.sales.filter(s=>!register || s.register_id === register).map(s=><tr key={String(s.id)}><td>{String(s.id)}</td>
         <td>{money((s.receipt as {totalMinor:number}).totalMinor)}</td></tr>)}</tbody></table>
       <button type="button" onClick={() => download(report)}>Download branch CSV</button>
+      {report.currency === 'INR' && <details>
+        <summary>Tally accounting export</summary>
+        <p>In the destination company, set up Cash, ERA Sales, ERA Output GST, ERA UPI Clearing and ERA Exchange Clearing. GST posts to a single control ledger for reconciliation.</p>
+        <p>Import the XML as transactions for this branch date. Check existing voucher numbers before repeating an import. Zero-value receipts are omitted.</p>
+        <button type="button" onClick={() => saveFile(tallyExport(report),'application/xml',
+          `era-tally-${path.split('/').pop()}-${report.date}.xml`)}>Download Tally XML</button>
+      </details>}
       {report.shifts.map((shift) => <details key={`${shift.register_id}-${shift.id}`}>
         <summary>{new Date(shift.closed_at).toLocaleString()} · Variance {money(shift.variance_minor)}</summary>
         <p>Register {shift.register_id} · Counted {money(shift.counted_minor)} · Expected {money(shift.expected_minor)}</p>

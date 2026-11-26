@@ -98,7 +98,8 @@ export class ReturnsController {
       const existing = await client.query<Stored>(`
         SELECT * FROM sale_returns WHERE merchant_id = $1 AND register_id = $2 AND id = $3 FOR UPDATE
       `, [merchant, register, id]);
-      const hash = digest(JSON.stringify([data.shiftId, data.saleId, data.reason, data.lines, data.replacement]));
+      const hash = digest(JSON.stringify([data.shiftId, data.saleId, data.reason, data.lines, data.replacement,
+        ...(data.saleRegisterId === undefined ? [] : [data.saleRegisterId])]));
       const prior = existing.rows[0];
       if (prior) {
         if (data.action === 'cancel' && prior.status === 'requested') {
@@ -122,12 +123,25 @@ export class ReturnsController {
         return { ...selection(item), disposition: item.disposition };
       });
       if (new Set(selections.map(({ sku }) => sku)).size !== selections.length) throw new BadRequestException('List each SKU once');
-      const sale = await client.query<{ register_id: string; receipt: Original }>(`
-        SELECT register_id,receipt FROM cash_sales WHERE merchant_id = $1 AND branch_id = $2 AND operation_id = $3 LIMIT 2
-      `, [merchant,branch,saleId]);
-      if (sale.rows.length !== 1) throw new NotFoundException('Original receipt must be synced at this branch');
+      const saleRegister = data.saleRegisterId === undefined ? null : text(data.saleRegisterId,'original register ID',120);
+      const sale = await client.query<{ register_id:string; branch_id:string; sold_at:string; returned_at:string; receipt:Original }>(`
+        SELECT s.register_id,s.branch_id,s.receipt,origin.name AS sold_at,destination.name AS returned_at
+        FROM cash_sales s JOIN branches origin ON (origin.merchant_id,origin.id)=(s.merchant_id,s.branch_id)
+        JOIN branches destination ON destination.merchant_id=s.merchant_id AND destination.id=$2
+        WHERE s.merchant_id=$1 AND s.operation_id=$3 AND ($4::text IS NULL OR s.register_id=$4) LIMIT 2
+      `, [merchant,branch,saleId,saleRegister]);
+      if (!sale.rowCount) throw new NotFoundException('Synced original receipt not found for this merchant');
+      if (sale.rows.length>1) throw new ConflictException('Enter the original register ID to identify this receipt');
       const source = sale.rows[0];
+      const crossStore = source.branch_id === branch ? undefined : {
+        soldAt:source.sold_at, returnedAt:source.returned_at, saleBranchId:source.branch_id, returnBranchId:branch,
+      };
       const lines = credits(source.receipt, selections, await usedQuantities(client, [merchant,source.register_id,saleId]));
+      if (crossStore) {
+        const local = await client.query('SELECT sku FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=ANY($3)',
+          [merchant,branch,lines.map(line=>line.sku)]);
+        if (local.rowCount!==lines.length) throw new ConflictException('Add the returned SKUs to the receiving branch catalog before requesting approval');
+      }
       let replacement: CashLineV1 | undefined;
       if (data.replacement !== undefined) {
         const item = selection(data.replacement);
@@ -146,7 +160,7 @@ export class ReturnsController {
       const creditMinor = lines.reduce((sum,line) => sum + line.creditMinor, 0);
       const differenceMinor = (replacement ? saleTotals([replacement],0).total : 0) - creditMinor;
       const cashRefundMinor=await cashRefund(client,[merchant,source.register_id,saleId],source.receipt,differenceMinor);
-      const receipt: ReturnReceipt = { cashRefundMinor,id, saleId, reason, currency: source.receipt.currency, lines, replacement, creditMinor, differenceMinor,
+      const receipt: ReturnReceipt = { crossStore,cashRefundMinor,id, saleId, reason, currency: source.receipt.currency, lines, replacement, creditMinor, differenceMinor,
         tender: differenceMinor < 0 && cashRefundMinor !== -differenceMinor ? source.receipt.tender ?? 'cash' : 'cash', status: 'requested' };
       const created = await client.query(`
         INSERT INTO sale_returns (merchant_id,branch_id,id,register_id,shift_id,sale_register_id,sale_id,digest,reason,receipt)

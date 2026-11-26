@@ -127,11 +127,17 @@ For a split sale, enter the cash portion and start the UPI payment for the balan
 
 Open **Register → Open customer display** for the customer screen. From a synced receipt, the cashier can send a copy at the customer's request. For email, configure `ERA_RESEND_KEY` and `ERA_RECEIPT_FROM` (or `ERA_SIGNUP_FROM`) on the API. For SMS, configure `ERA_TWILIO_ACCOUNT`, `ERA_TWILIO_TOKEN` and `ERA_SMS_FROM`. Use an international phone number including the country code.
 
+### Catalog barcode labels
+
+In the merchant workspace, open **Catalog → Print barcode labels**, select 50 × 30 mm or 70 × 40 mm stock, and enter the copy count for each matching product. In the browser print dialog, select the label printer or save a PDF. Match the paper size and use 100% scale. Each page contains one label. Long values that would make the bars too narrow and values outside printable ASCII use QR and require a 2D scanner.
+
 ### Receipt returns and exchanges
 
 Sync the original sale, open a shift, and request a return on the counter using the receipt ID and SKU. An owner or assigned manager approves it in the merchant workspace. The counter checks the result and can print the completed return. For a cash difference, the cashier handles cash on completion. If a UPI refund response is delayed, use **Check provider refund** on the original request. A shift with an unresolved return stays open. Download the catalog after syncing to pick up current stock.
 
-Returns use the original price and allocate discounts in minor units across partial quantities. Current sales have zero captured tax. Damaged items are recorded separately from sellable stock.
+A counter can accept a synced receipt from another branch of the same merchant. The receiving branch must carry the returned SKUs. Its owner or assigned manager approves the request, its register handles the cash difference, and its inventory receives the goods. UPI refunds follow the original payment. If two registers used the same receipt ID, enter the original register ID from the receipt.
+
+Returns use the original sale prices and captured taxes and allocate discounts in minor units across partial quantities. Damaged items are recorded separately from sellable stock.
 
 ### Inventory and daily close
 

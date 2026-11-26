@@ -14,6 +14,7 @@ export function ReturnApprovals({ path, token }: { path: string; token: string }
     {returns.filter(item => item.registerId === register).map((item) => <details key={item.id}>
       <summary>{item.id} · {item.status} {['requested','pending_refund'].includes(item.status) &&
         `· Waiting ${Math.max(0, Math.floor((Date.now()-Date.parse(item.requestedAt))/60000))} min`}</summary>
+      {item.crossStore && <p>Sold at {item.crossStore.soldAt} · Returned at {item.crossStore.returnedAt}</p>}
       <p>Original receipt {item.saleId} · {item.reason}</p>
       <ul>{item.lines.map((line) => <li key={line.sku}>{[line.product,...(line.modifiers ?? []).map(m=>m.name)].join(" · ")} × {line.quantity} · {line.disposition}</li>)}</ul>
       {item.replacement && <p>Replacement {item.replacement.product} × {item.replacement.quantity}</p>}

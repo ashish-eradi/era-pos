@@ -155,7 +155,10 @@ export async function checkOnboarding(port, connectionString) {
     assert.equal(updated.version, '2');
     assert.equal(updated.items[0].product, edited.product);
     assert.equal(updated.items[0].onHand, otherSnapshot.items[0].onHand);
-    assert.equal((await call(`${otherPath}/items`, otherOwner.token, 200))[0].priceMinor, 499);
+    const [usItem] = await call(`${otherPath}/items`, otherOwner.token, 200);
+    assert.equal(usItem.priceMinor,499);
+    assert.equal(usItem.currency,'USD');
+    assert.equal((await call(`${importPath}/items`,owner.token,200))[0].currency,'INR');
     assert.equal(snapshot.items[0].priceMinor, 12900);
 
     const access = await call(issue, owner.token, 201, {});
@@ -186,6 +189,10 @@ export async function checkOnboarding(port, connectionString) {
     assert.equal((await call('devices/cash-sales', otherProof, 201, { deviceId: otherDevice, operation })).code, 'register_forbidden');
     const first = await call('devices/cash-sales', freshProof, 201, { deviceId, operation });
     assert.equal(first.status, 'committed');
+    await call('devices/returns',otherProof,404,{
+      deviceId:otherDevice,id:randomUUID(),action:'create',shiftId:randomUUID(),saleId:operation.operationId,
+      reason:'Wrong merchant',lines:[{sku:'NOTE-A5',quantity:1,disposition:'sellable'}],
+    });
     const secondAck = await call('devices/cash-sales', freshProof, 201, { deviceId, operation });
     assert.deepEqual(secondAck, { ...first, status: 'replayed' });
     const altered = { ...operation, payload: { ...operation.payload, tenderedMinor: 14000 } };

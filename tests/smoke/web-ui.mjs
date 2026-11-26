@@ -1,3 +1,4 @@
+import { checkBarcodeLabels } from './barcode-labels.mjs';
 import assert from 'node:assert/strict';
 import { app, BrowserWindow } from 'electron';
 import { createServer } from 'node:http';
@@ -11,6 +12,7 @@ async function main() {
   const profile = await mkdtemp(join(tmpdir(),'era-web-ui-'));
   app.setPath('userData',profile);
   const transfers = [];
+  const codes = {TEA:'茶-' + '0123456789'.repeat(6),COFFEE:'0012345678905'};
   const purchaseOrders = [];
   const customers = new Map();
   const modifiers = new Map();
@@ -71,13 +73,17 @@ async function main() {
         path.endsWith('/branches') ? ['Central','West'].map(id=>({id,name:id,timezone:'UTC',catalogDefaults:[]})) :
         path.endsWith('/inventory') ? {items:[{sku:'TEA',product:'Tea',onHand:5,damaged:0,threshold:null}],documents:[],orders:purchaseOrders,
           stores:['Central','West'].filter(id=>!path.includes('/'+id+'/')).map(id=>({id,name:id})),transfers:transfers.map(t=>({...t,incoming:path.includes('/Central/')}))} :
+        path.endsWith('/returns') ? [{id:'remote-return',saleId:'origin-sale',registerId:'A',requestedAt:'2026-11-24T10:00:00Z',
+          status:'requested',currency:'INR',reason:'Damaged',tender:'cash',differenceMinor:-500,lines:[{sku:'TEA',product:'Tea',quantity:1,disposition:'damaged'}],
+          crossStore:{soldAt:'West',returnedAt:'Central',saleBranchId:'West',returnBranchId:'Central'}}] :
         path.endsWith('/customers') ? [...customers.values()] :
         path.endsWith('/C-1/purchases') ? [{id:'linked-sale',register:'A',occurredAt:'2026-11-24T10:00:00Z',currency:'INR',totalMinor:500,lines:[{sku:'TEA',product:'Tea',quantity:1}]}] :
         path.endsWith('/dashboard') ? {currency:'INR',returns:0,products:[],categories:[],buckets:[],
           registers:[{id:'A',name:'Till A',provisional:false}]} :
-        path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map((sku,i)=>({sku,product:sku,barcode:'001'+i,priceMinor:500,modifiers:modifiers.get(sku),photo:photos.get(sku)})) :
+        path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map(sku=>({sku,product:sku,barcode:codes[sku],currency:'INR',priceMinor:500,modifiers:modifiers.get(sku),photo:photos.get(sku)})) :
         path.endsWith('/daily-close') ? {currency:'INR',grossMinor:'12500',netMinor:'12500',date:'2026-11-24',
-          provisional:false,sales:[{id:'receipt-1',register_id:'A',receipt:{currency:'INR',totalMinor:12500}}],
+          provisional:false,sales:[{id:'receipt-1',register_id:'A',receipt:{currency:'INR',totalMinor:12500,
+            discountMinor:0,lines:[{sku:'T',quantity:1,unitMinor:12500}]}}],
           registers:[{id:'A',name:'Till A',provisional:false}],returns:[],shifts:[],settlements:[],providerRefunds:[]} : [];
       res.setHeader('Content-Type','application/json'); res.end(JSON.stringify(result)); return;
     }
@@ -118,8 +124,15 @@ async function main() {
     await waitFor("!!document.querySelector('.sales-metric')");
     await run("document.querySelector('.sales-metric').click()");
     await waitFor("document.body.innerText.includes('receipt-1')");
+    await run("[...document.querySelectorAll('summary')].find(s=>s.textContent==='Tally accounting export').click()");
+    const tallyDownload = new Promise(resolve=>win.webContents.session.once('will-download',(event,item)=>{
+      event.preventDefault();resolve(item.getFilename());
+    }));
+    await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Download Tally XML').click()");
+    assert.equal(await Promise.race([tallyDownload,delay(5000,'timeout')]),'era-tally-West-2026-11-24.xml');
     await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Catalog').click()");
     await waitFor("document.querySelectorAll('.desk tbody tr').length===2");
+    await checkBarcodeLabels(run,waitFor,codes);
     await run(`const search = document.querySelector('input[type=search]');
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'f');
       search.dispatchEvent(new Event('input',{bubbles:true}));`);
@@ -175,6 +188,11 @@ async function main() {
       const arrival=document.querySelector('[aria-label="Received quantity for TEA"]').form;
       arrival.elements.reference.value='ARR-1';arrival.elements['quantity-0'].value='3';arrival.requestSubmit();`);
     await waitFor("document.body.innerText.includes('TX-1 · From West · Received')");
+    await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Returns').click()");
+    await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Load returns').click()");
+    await waitFor("document.body.innerText.includes('remote-return')");
+    await run("[...document.querySelectorAll('summary')].find(s=>s.textContent.includes('remote-return')).click()");
+    await waitFor("document.body.innerText.includes('Sold at West · Returned at Central') && document.body.innerText.includes('Approve return')");
     win.setContentSize(390,844);
     await waitFor("document.querySelector('.menu-trigger').offsetWidth > 0");
     await run("document.querySelector('.menu-trigger').click()");
