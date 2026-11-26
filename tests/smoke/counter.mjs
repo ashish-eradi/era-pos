@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { randomBytes } from 'node:crypto';
+import { randomBytes,scryptSync } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -29,6 +29,11 @@ const server = createServer(async (request, response) => {
   for await (const chunk of request) body += chunk;
   const input = JSON.parse(body);
   assert.equal(request.method, 'POST');
+  if (request.url === '/v1/devices/cashiers') {
+    const salt='0'.repeat(32);
+    response.writeHead(201,{'content-type':'application/json'});
+    response.end(JSON.stringify({registerId:'counter-1',staff:[{id:'cashier-1',name:'Pilot cashier',salt,verifier:scryptSync('123456',salt,32).toString('hex')}]}));return;
+  }
   if (request.url === '/v1/devices/heartbeat') {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
@@ -42,22 +47,24 @@ const server = createServer(async (request, response) => {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
     if (input.amount !== undefined) {
-      assert.equal(input.amount, 12900);
+      assert.equal(input.amount, 9900);
       upiOperation = input.operationId;
     } else assert.equal(input.operationId, upiOperation);
     response.writeHead(201, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ operationId: upiOperation, status: input.amount ? 'pending' : 'paid',
-      amountMinor: 12900, shortUrl: 'https://rzp.io/i/counter-test' }));
+      amountMinor: 9900, shortUrl: 'https://rzp.io/i/counter-test' }));
     return;
   }
   if (request.url === '/v1/devices/cash-sales') {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
+    assert.equal(input.operation.payload.cashier.id,'cashier-1');
     assert.equal(input.operation.payload.placeOfSupply,'27');
     assert.equal(input.operation.payload.invoiceNumber,input.operation.payload.tender==='upi'?'42-2':'42-1');
     if (input.operation.payload.tender === 'upi') {
       assert.equal(input.operation.operationId, upiOperation);
       assert.equal(input.operation.payload.tenderedMinor, 12900);
+      assert.equal(input.operation.payload.cashPortionMinor,3000);
       recordedUpi++;
       response.writeHead(201, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ version: 1, operationId: upiOperation, status: 'committed', committedAt: input.operation.occurredAt }));
@@ -127,13 +134,15 @@ async function evaluate(url, expression) {
       id: 1, method: 'Runtime.evaluate', params: { expression, returnByValue: true },
     }));
     const [{ data }] = await message;
-    return JSON.parse(data).result?.result?.value;
+    const result = JSON.parse(data).result;
+    if (result?.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
+    return result?.result?.value;
   } finally {
     socket.close();
   }
 }
 
-async function launch(activate = false) {
+async function launch(activate = false,resumePayment=false) {
   let download = activate;
   const packaged = process.env.ERA_SMOKE_COUNTER_EXE;
   const args = [...(packaged ? [] : [resolve('apps/counter')]), '--remote-debugging-port=0', `--user-data-dir=${profile}`];
@@ -149,7 +158,11 @@ async function launch(activate = false) {
       const endpoint = log.match(/DevTools listening on ws:\/\/(127\.0\.0\.1:\d+)/)?.[1];
       if (endpoint) {
         const pages = await (await fetch(`http://${endpoint}/json/list`)).json();
-        const page = pages.find(({ type, url }) => type === 'page' && url.includes('renderer/index.html'));
+        const page = pages.find(({ type, url }) => type === 'page' && url.includes('renderer/index.html') && !url.endsWith('#customer'));
+        const display=pages.find(({type,url})=>type==='page' && url.endsWith('#customer'));
+        if (display && page && await evaluate(display.webSocketDebuggerUrl,"!window.counter && document.body.innerText.includes('A5 notebook')"))
+          await evaluate(page.webSocketDebuggerUrl,'window.displayChecked=true');
+        if (page && i === 119) log += await evaluate(page.webSocketDebuggerUrl,"JSON.stringify({step:window.checkoutStep,display:window.displayChecked,text:document.body.innerText.slice(-900)})");
         if (page && activate && await evaluate(page.webSocketDebuggerUrl, `
           (() => {
             const input = document.querySelector('input[name="code"]');
@@ -174,7 +187,9 @@ async function launch(activate = false) {
               label.querySelectorAll('kbd,svg').forEach(node => node.remove());
               return label.textContent.trim() === text && !control.disabled;
             });
-            const next = window.checkoutStep ?? 0;
+            const pin=document.querySelector('input[name=pin]');
+            if (pin) {pin.value='123456';pin.form.requestSubmit();return false;}
+            const next = window.checkoutStep ?? ${resumePayment ? 5 : 0};
             const checkout = document.querySelector('[aria-labelledby="checkout-title"]');
             if (!checkout) return false;
             const open = button('Open shift');
@@ -206,6 +221,10 @@ async function launch(activate = false) {
                 window.checkoutStep = 1.8;
               }
               if (next === 1.8 && button('Register')?.getAttribute('aria-current') === 'page') {
+                button('Open customer display').click();
+                window.checkoutStep = 1.85;
+              }
+              if (next === 1.85 && button('Sell')) {
                 document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'F1',bubbles:true}));
                 window.checkoutStep = 1.9;
               }
@@ -213,7 +232,7 @@ async function launch(activate = false) {
                 const resume = [...checkout.querySelectorAll('button')].find(b => b.textContent.startsWith('Resume 1 lines'));
                 if (resume) { resume.click(); window.checkoutStep = 2; }
               }
-              if (next === 2 && complete) {
+              if (next === 2 && complete && window.displayChecked) {
                 complete.form.elements.tendered.value = '130';
                 window.checkoutStep = 3;
                 complete.click();
@@ -232,19 +251,25 @@ async function launch(activate = false) {
               add.click();
             } else if (next === 3 && button('Start UPI payment')) {
               window.checkoutStep = 4;
-              button('Start UPI payment').click();
+              const field=document.querySelector('input[name=cashPart]');
+              Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,'30');
+              field.dispatchEvent(new Event('input',{bubbles:true}));
+              window.checkoutStep=3.5;
+            } else if (next===3.5 && button('Start split payment')) {
+              window.checkoutStep=4;button('Start split payment').click();
             } else if (next === 4 && checkout.querySelector('svg title')?.textContent === 'Scan to pay by UPI' && checkout.querySelector('input[readonly]')?.value === 'https://rzp.io/i/counter-test') {
               window.checkoutStep = 5;
-            } else if (next === 5 && button('Record UPI sale') && !complete) {
+            } else if (next === 5 && button('Confirm cash collected and record split sale') && !complete) {
+              if (!${resumePayment}) return true;
               window.checkoutStep = 6;
-              button('Record UPI sale').click();
+              button('Confirm cash collected and record split sale').click();
             } else if (next === 6 && checkout.textContent.includes('0 pending') && checkout.textContent.includes('0 on hand') && button('Close shift')) {
               window.checkoutStep = 7;
               button('Close shift').click();
             } else if (next === 7 && button('Submit blind count')) {
               const submit = button('Submit blind count');
               if (checkout.textContent.includes('Expected')) throw new Error('Expected cash visible before blind count');
-              submit.form.elements.amount.value = '129';
+              submit.form.elements.amount.value = '159';
               window.checkoutStep = 8;
               submit.click();
             }
@@ -295,6 +320,7 @@ async function main() {
     db.close();
     online = true;
     await launch();
+    await launch(false,true);
     const reopened = new DatabaseSync(path, { readOnly: true });
     assert.equal(reopened.prepare("SELECT value FROM register_settings WHERE key = 'smoke-marker'").get().value, 'persisted');
     assert.equal(activationCount, 1);
@@ -310,7 +336,7 @@ async function main() {
     assert.equal(committed.payload.lines[0].quantity, 1);
     assert.equal(reopened.prepare('SELECT count(*) AS count FROM cash_outbox').get().count, 0);
     assert.deepEqual({ ...reopened.prepare('SELECT counted_minor, expected_minor FROM cash_shifts').get() },
-      { counted_minor: 12900, expected_minor: 12900 });
+      { counted_minor: 15900, expected_minor: 15900 });
     const { backupCounter } = await import('../../apps/counter/dist/main/recovery.js');
     maintenanceReady(reopened);
     const backupPath = join(profile,'rehearsal.sqlite');

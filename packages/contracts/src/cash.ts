@@ -5,6 +5,7 @@ import type { GstLine, ReceiptBrand, InvoiceBuyer } from './gst';
 export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number; gst?:GstLine };
 export type CashReceiptV1 = {
   kind: 'cash_sale';
+  cashier?:{id:string;name:string};
   invoiceNumber?:string;
   placeOfSupply?:string;
   buyer?:InvoiceBuyer;
@@ -18,6 +19,7 @@ export type CashReceiptV1 = {
   discountMinor: number;
   tenderedMinor: number;
   tender?: 'upi';
+  cashPortionMinor?:number;
   approval?: string;
 };
 
@@ -35,6 +37,8 @@ export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
   for (const [field, limit] of [[receipt.merchantName, 120], [receipt.receiptAddress, 400], [receipt.receiptGstin, 15]] as const) {
     if (field !== undefined && (typeof field !== 'string' || field.length > limit)) return false;
   }
+  if (receipt.cashier!==undefined && (!receipt.cashier || typeof receipt.cashier.id!=='string' || !receipt.cashier.id || receipt.cashier.id.length>120 ||
+    typeof receipt.cashier.name!=='string' || !receipt.cashier.name || receipt.cashier.name.length>320)) return false;
   if (receipt.kind !== 'cash_sale' || typeof receipt.shiftId !== 'string' || !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(receipt.shiftId) ||
       !['INR', 'USD'].includes(receipt.currency) || !Array.isArray(receipt.lines) ||
       !receipt.lines.length || receipt.lines.length > 100 ||
@@ -52,6 +56,7 @@ export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
   if (!cashAmount(subtotal) || receipt.discountMinor>subtotal) return false;
   const {total} = saleTotals(receipt.lines,receipt.discountMinor);
   if (receipt.invoiceNumber !== undefined && (typeof receipt.invoiceNumber!=='string' || !receipt.lines.some(line=>line.gst) || !validBuyer(receipt.buyer,total))) return false;
+  if (receipt.cashPortionMinor!==undefined && (receipt.tender!=='upi' || !cashAmount(receipt.cashPortionMinor) || receipt.cashPortionMinor<=0 || receipt.cashPortionMinor>=total)) return false;
   return new Set(receipt.lines.map(({ sku }) => sku)).size === receipt.lines.length &&
     cashAmount(subtotal) && receipt.discountMinor <= subtotal && cashAmount(total) && receipt.tenderedMinor >= total &&
     (receipt.discountMinor === 0 || (typeof receipt.approval === 'string' && /^[A-Za-z0-9_-]{43}$/.test(receipt.approval))) &&

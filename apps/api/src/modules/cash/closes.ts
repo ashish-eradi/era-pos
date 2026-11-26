@@ -40,7 +40,9 @@ export class ClosesController {
       typeof receiptCount !== 'number' || !Number.isSafeInteger(receiptCount) || receiptCount < 0) {
       throw new BadRequestException('Invalid shift close');
     }
-    const hash = digest(JSON.stringify([opened,closed,opening,counted,receiptCount]));
+    const openedBy=data.openedBy===undefined ? null : text(data.openedBy,'opening cashier',120);
+    const closedBy=data.closedBy===undefined ? null : text(data.closedBy,'closing cashier',120);
+    const hash = digest(JSON.stringify([opened,closed,opening,counted,receiptCount,...(openedBy || closedBy ? [openedBy,closedBy] : [])]));
     return transaction(this.database, async (client) => {
       const [merchant,branch,register] = await deviceScope(client,device,authorization);
       const existing = await client.query<{ digest: string }>(`
@@ -51,11 +53,11 @@ export class ClosesController {
         return { id, replayed: true };
       }
       const { rows } = await client.query<{ receipts: number; sales: string; adjustments: string; pending: boolean }>(`
-        SELECT count(*)::int AS receipts,COALESCE(sum((receipt->>'totalMinor')::bigint) FILTER (
-          WHERE COALESCE(receipt->>'tender','cash') = 'cash'),0) AS sales,
-          (SELECT COALESCE(sum((receipt->>'differenceMinor')::bigint),0) FROM sale_returns
+        SELECT count(*)::int AS receipts,COALESCE(sum(CASE WHEN receipt->>'tender'='upi' THEN coalesce((receipt->>'cashPortionMinor')::bigint,0)
+          ELSE (receipt->>'totalMinor')::bigint END),0) AS sales,
+          (SELECT COALESCE(sum(CASE WHEN receipt->>'tender'='cash' THEN (receipt->>'differenceMinor')::bigint ELSE -coalesce((receipt->>'cashRefundMinor')::bigint,0) END),0) FROM sale_returns
            WHERE merchant_id = $1 AND register_id = $2 AND shift_id = $3
-             AND status = 'complete' AND receipt->>'tender' = 'cash') AS adjustments,
+             AND status = 'complete') AS adjustments,
           EXISTS (SELECT 1 FROM sale_returns WHERE merchant_id = $1 AND register_id = $2 AND shift_id = $3
             AND status IN ('requested','pending_refund')) AS pending
         FROM cash_sales WHERE merchant_id = $1 AND register_id = $2 AND receipt->>'shiftId' = $3::uuid::text
@@ -63,9 +65,9 @@ export class ClosesController {
       if (rows[0].receipts !== receiptCount || rows[0].pending) throw new ConflictException('Sync all receipts and resolve all return requests first');
       const expected = BigInt(opening) + BigInt(rows[0].sales) + BigInt(rows[0].adjustments);
       await client.query(`
-        INSERT INTO shift_closes (merchant_id,branch_id,register_id,id,opened_at,closed_at,float_minor,counted_minor,expected_minor,digest)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-      `, [merchant,branch,register,id,opened,closed,opening,counted,expected.toString(),hash]);
+        INSERT INTO shift_closes (merchant_id,branch_id,register_id,id,opened_at,closed_at,float_minor,counted_minor,expected_minor,digest,opened_by_cashier,closed_by_cashier)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `, [merchant,branch,register,id,opened,closed,opening,counted,expected.toString(),hash,openedBy,closedBy]);
       return { id, replayed: false };
     });
   }

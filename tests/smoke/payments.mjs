@@ -12,6 +12,7 @@ export async function mockRazorpay() {
   const auth = 'Basic ' + Buffer.from('rzp_test_smoke:mock-test-secret').toString('base64');
   const links = new Map();
   const emailCodes = new Map();
+  const delivered=[];
   const refunds = new Map();
   let createCalls = 0;
   let refundCalls = 0;
@@ -24,9 +25,14 @@ export async function mockRazorpay() {
       const url = new URL(request.url, 'http://127.0.0.1');
       let raw = '';
       for await (const chunk of request) raw += chunk;
+      if (url.pathname.endsWith('/Messages.json')) {
+        assert.equal(request.headers.authorization,'Basic '+Buffer.from('test-account:test-token').toString('base64'));
+        delivered.push(new URLSearchParams(raw).get('Body'));return send(201,{sid:'SMtest'});
+      }
       const body = raw ? JSON.parse(raw) : undefined;
       if (url.pathname === '/emails') {
         assert.equal(request.headers.authorization,'Bearer smoke-email');
+        if (body.subject==='Your sale receipt') {assert.ok(request.headers['idempotency-key']);delivered.push(body.text);return send(200,{id:randomUUID()});}
         emailCodes.set(body.to[0],body.text.match(/code is ([\w-]{43})/)[1]);
         return send(200,{id:randomUUID()});
       }
@@ -78,9 +84,11 @@ export async function mockRazorpay() {
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   return {
-    merchant, webhookSecret, links, emailCodes,
+    merchant, webhookSecret, links, emailCodes,delivered,
     counts: () => ({ createCalls, refundCalls }),
     env: {
+      ERA_TWILIO_ACCOUNT:'test-account',ERA_TWILIO_TOKEN:'test-token',ERA_SMS_FROM:'+15555550100',
+      ERA_RECEIPT_TEST_ORIGIN:`http://127.0.0.1:${server.address().port}`,
       NODE_ENV: 'test', ERA_RAZORPAY_TEST_ORIGIN: `http://127.0.0.1:${server.address().port}`,
       ERA_SIGNUP_TEST_ORIGIN: `http://127.0.0.1:${server.address().port}`, ERA_SIGNUP_FROM:'sender@example.test', ERA_RESEND_KEY:'smoke-email',
       ERA_RAZORPAY_ACCOUNTS: JSON.stringify(Object.fromEntries([merchant,'platform-signup'].map(key =>
@@ -179,9 +187,16 @@ export async function checkPayments(port, connectionString, provider) {
     await call('devices/upi', 201, { ...attempt, operationId: second });
     pay(second, 2);
     assert.equal((await call('devices/upi', 201, { deviceId, operationId: second })).status, 'paid');
-    const digital = { ...sale, operationId: second, payload: { ...sale.payload, tender: 'upi' } };
+    const digital = { ...sale, operationId: second, payload: { ...sale.payload, tender:'upi', cashPortionMinor:2000,
+      tenderedMinor:12000,lines:[{...sale.payload.lines[0],unitMinor:12000}] } };
     assert.equal((await call('devices/cash-sales', 201, { deviceId, operation: digital })).status, 'committed');
     assert.equal((await call('devices/cash-sales', 201, { deviceId, operation: digital })).status, 'replayed');
+    for (const [channel,recipient] of [['email','buyer@example.test'],['sms','+15555550101']]) {
+      const delivery={deviceId,id:second,channel,recipient};
+      await call('devices/send-receipt',201,delivery);await call('devices/send-receipt',201,delivery);
+    }
+    assert.equal(provider.delivered.length,2);
+    assert.ok(provider.delivered.every(message=>message.includes('Notebook') && message.includes('UPI') && message.includes('Cash')));
     const dashboard = await call(path, 200, undefined, token);
     assert.equal(dashboard.attempts.find((candidate) => candidate.operationId === second).overpayment, false);
     assert.equal((await call('devices/catalog', 201, { deviceId })).items[0].onHand, 0);
@@ -202,7 +217,7 @@ export async function checkPayments(port, connectionString, provider) {
     await approve(concurrent, 409);
     assert.equal((await call('devices/catalog', 201, { deviceId })).items[0].onHand, -1);
     const upiReturn = createReturn(second, 'sellable');
-    await call('devices/returns', 201, upiReturn);
+    assert.equal((await call('devices/returns', 201, upiReturn)).cashRefundMinor,2000);
     await approve(upiReturn, 502);
     assert.equal((await call('devices/returns', 201, { deviceId, id: upiReturn.id, action: 'get' })).status, 'pending_refund');
     assert.equal((await approve(upiReturn)).status, 'complete');
@@ -230,8 +245,8 @@ export async function checkPayments(port, connectionString, provider) {
     const reportPath = `${branchPath}/daily-close?date=${day}`;
     await call(`${branchPath}/closes/${register}/${close.id}/approve`, 201, { reason: 'Verified shortage' }, token);
     const report = await call(reportPath, 200, undefined, token);
-    assert.equal(report.shifts[0].expected_minor, '11000');
-    assert.equal(report.shifts[0].variance_minor, '-1000');
+    assert.equal(report.shifts[0].expected_minor, '13000');
+    assert.equal(report.shifts[0].variance_minor, '-3000');
     assert.equal(report.shifts[0].approved_by, 'owner');
     assert.equal(report.provisional, true);
     assert.equal(report.settlements[0].payment_id, 'pay_test1');

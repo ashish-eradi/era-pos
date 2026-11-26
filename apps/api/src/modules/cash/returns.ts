@@ -37,6 +37,13 @@ async function usedQuantities(client: PoolClient, key: [string, string, string])
   return new Map(rows.map(({ sku, quantity }) => [sku, Number(quantity)]));
 }
 
+async function cashRefund(client:PoolClient,key:[string,string,string],sale:Original,difference:number) {
+  if (!sale.cashPortionMinor || difference>=0) return undefined;
+  const used=await client.query(`SELECT coalesce(sum((receipt->>'cashRefundMinor')::bigint),0) AS amount FROM sale_returns
+    WHERE (merchant_id,sale_register_id,sale_id)=($1,$2,$3) AND status IN ('pending_refund','complete')`,key);
+  return Math.min(-difference,Math.max(0,sale.cashPortionMinor-Number(used.rows[0].amount)));
+}
+
 function portion(amount: number, position: number, total: number) {
   return total ? Number(BigInt(amount) * BigInt(position) / BigInt(total)) : 0;
 }
@@ -138,8 +145,9 @@ export class ReturnsController {
       }
       const creditMinor = lines.reduce((sum,line) => sum + line.creditMinor, 0);
       const differenceMinor = (replacement ? saleTotals([replacement],0).total : 0) - creditMinor;
-      const receipt: ReturnReceipt = { id, saleId, reason, currency: source.receipt.currency, lines, replacement, creditMinor, differenceMinor,
-        tender: differenceMinor < 0 ? source.receipt.tender ?? 'cash' : 'cash', status: 'requested' };
+      const cashRefundMinor=await cashRefund(client,[merchant,source.register_id,saleId],source.receipt,differenceMinor);
+      const receipt: ReturnReceipt = { cashRefundMinor,id, saleId, reason, currency: source.receipt.currency, lines, replacement, creditMinor, differenceMinor,
+        tender: differenceMinor < 0 && cashRefundMinor !== -differenceMinor ? source.receipt.tender ?? 'cash' : 'cash', status: 'requested' };
       const created = await client.query(`
         INSERT INTO sale_returns (merchant_id,branch_id,id,register_id,shift_id,sale_register_id,sale_id,digest,reason,receipt)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (merchant_id,id) DO NOTHING
@@ -184,12 +192,14 @@ export class ReturnsController {
         `, key);
         if (pending.rowCount) throw new ConflictException('Resolve the pending refund on this receipt first');
         const lines = credits(sale.rows[0].receipt, row.receipt.lines, await usedQuantities(client,key));
+        if (await cashRefund(client,key,sale.rows[0].receipt,row.receipt.differenceMinor)!==row.receipt.cashRefundMinor)
+          throw new ConflictException('Refund allocation changed. Cancel and request a new quote');
         if (lines.some((line, index) => line.creditMinor !== row.receipt.lines[index].creditMinor ||
           line.taxMinor !== row.receipt.lines[index].taxMinor)) throw new ConflictException('Credit changed. Cancel and request a new quote');
         await client.query('UPDATE sale_returns SET approved_by = $3 WHERE merchant_id = $1 AND id = $2', [merchant,id,actor]);
         if (row.receipt.tender === 'cash') return { receipt: await finalize(client,merchant,branch,row,'complete') };
       }
-      const amount = -row.receipt.differenceMinor;
+      const amount = -row.receipt.differenceMinor-(row.receipt.cashRefundMinor ?? 0);
       const refund = await reserveRefund(client,merchant,row.sale_id,actor,id,amount);
       await client.query("UPDATE sale_returns SET status = 'pending_refund' WHERE merchant_id = $1 AND id = $2", [merchant,id]);
       return { refund, amount };

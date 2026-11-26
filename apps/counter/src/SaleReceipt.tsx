@@ -26,7 +26,7 @@ export function SaleReceipt({ sale }: { sale: SyncRequestV1<CashReceiptV1> }) {
         <td>{line.quantity}</td><td>{money(breakdown[i].payable)}</td></tr>)}</tbody></table>
     <dl><dt>Before tax and discount</dt><dd>{money(total-tax+receipt.discountMinor)}</dd><dt>Discount</dt><dd>{money(receipt.discountMinor)}</dd>
       {receipt.invoiceNumber && Object.entries(summary).map(([key,amount])=><div key={key} className="tax-row"><dt>{key}</dt><dd>{money(amount)}</dd></div>)}
-      <dt>Total</dt><dd><strong>{money(total)}</strong></dd><dt>{receipt.tender === 'upi' ? 'UPI paid' : 'Cash tendered'}</dt><dd>{money(receipt.tenderedMinor)}</dd>
+      <dt>Total</dt><dd><strong>{money(total)}</strong></dd>{receipt.cashPortionMinor && <><dt>Cash paid</dt><dd>{money(receipt.cashPortionMinor)}</dd></>}<dt>{receipt.tender === 'upi' ? 'UPI paid' : 'Cash tendered'}</dt><dd>{money(receipt.tenderedMinor-(receipt.cashPortionMinor ?? 0))}</dd>
       {receipt.tender !== 'upi' && <><dt>Change</dt><dd>{money(receipt.tenderedMinor-total)}</dd></>}</dl>
     <footer><QRCodeSVG value={sale.operationId} size={112} marginSize={4} title="Receipt ID for returns"/>
       {receipt.invoiceNumber && <p>Reverse charge: No</p>}

@@ -22,9 +22,11 @@ export async function dashboard(client: PoolClient, merchant: string, branch: st
   )`;
   const buckets = await client.query(`${sales}
     SELECT local_time::date::text AS day, extract(hour FROM local_time)::int AS hour,
-      COALESCE(receipt->>'tender','cash') AS tender, count(*)::int AS count,
-      sum((receipt->>'totalMinor')::bigint)::text AS amount
-    FROM sales GROUP BY 1,2,3 ORDER BY 1,2,3`,scope);
+      parts.tender, sum(parts.transactions)::int AS count, sum(parts.amount)::text AS amount
+    FROM sales CROSS JOIN LATERAL (
+      SELECT coalesce(receipt->>'tender','cash') AS tender,1 AS transactions,(receipt->>'totalMinor')::bigint-coalesce((receipt->>'cashPortionMinor')::bigint,0) AS amount
+      UNION ALL SELECT 'cash',0,(receipt->>'cashPortionMinor')::bigint WHERE receipt ? 'cashPortionMinor'
+    ) parts GROUP BY 1,2,3 ORDER BY 1,2,3`,scope);
   const lines = `${sales}, lines AS (
     SELECT line->>'sku' AS sku, line->>'product' AS product, (line->>'quantity')::int AS qty,
       (line->>'unitMinor')::bigint * (line->>'quantity')::int AS amount FROM sales

@@ -79,6 +79,17 @@ export async function checkOnboarding(port, connectionString) {
     await call('devices/pairing', '', 404, { deviceId, pairingProof: randomBytes(32).toString('base64url') });
     const pairing = await call('devices/pairing', '', 201, { deviceId, pairingProof });
     assert.equal(pairing.registerId, register.id);
+    const staffPath=`${merchant}/branches/${branch.id}/cashiers`;
+    const members=await call(staffPath,owner.token,200);
+    const cashier=members.find(person=>person.role==='manager');
+    await call(staffPath,staff.token,403,{id:cashier.id,pin:'135790'});
+    await call(staffPath,owner.token,201,{id:cashier.id,pin:'135790'});
+    const staffCopy=await call('devices/cashiers',pairingProof,201,{deviceId});
+    assert.equal(staffCopy.staff[0].id,cashier.id);
+    assert.equal(staffCopy.staff[0].verifier.length,64);
+    assert.equal((await call(`${merchant}/branches/${second.id}/cashiers`,owner.token,200)).some(person=>person.id===cashier.id),false);
+    await call(staffPath,owner.token,201,{id:cashier.id,pin:null});
+    assert.deepEqual((await call('devices/cashiers',pairingProof,201,{deviceId})).staff,[]);
     const csv = await readFile(new URL('../../fixtures/catalog.csv', import.meta.url), 'utf8');
     const importPath = `${merchant}/branches/${branch.id}/catalog`;
     const invalid = await call(`${importPath}/preview`, owner.token, 201, { csv: csv.replace('12900', '12.9') });

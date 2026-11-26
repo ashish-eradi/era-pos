@@ -1,3 +1,4 @@
+import { returnTenderLabel } from '@era/contracts';
 import { useState } from 'react';
 import type { ReturnReceipt } from '@era/contracts';
 import { Action, request } from '../onboarding';
@@ -18,7 +19,7 @@ export function ReturnApprovals({ path, token }: { path: string; token: string }
       {item.replacement && <p>Replacement {item.replacement.product} × {item.replacement.quantity}</p>}
       <p>{item.differenceMinor < 0 ? 'Refund' : 'Collect'} {new Intl.NumberFormat(undefined, {
         style: 'currency', currency: item.currency,
-      }).format(Math.abs(item.differenceMinor) / 100)} · {item.tender}</p>
+      }).format(Math.abs(item.differenceMinor) / 100)} · {returnTenderLabel(item)}</p>
       {['requested','pending_refund'].includes(item.status) && <Action title={item.status === 'requested' ? 'Approve return' : 'Check provider refund'} run={async () => {
         const result = await request<ReturnReceipt>(`${path}/${item.id}/approve`,token,{});
         await load();

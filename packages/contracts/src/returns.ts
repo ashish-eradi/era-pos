@@ -17,8 +17,15 @@ export type ReturnReceipt = {
   status: 'requested' | 'pending_refund' | 'complete' | 'failed' | 'cancelled';
   lines: Array<ReturnSelection & CashLineV1 & { discountMinor: number; taxMinor: number; creditMinor: number }>;
   replacement?: CashLineV1;
+  cashRefundMinor?:number;
   creditMinor: number;
   differenceMinor: number;
   tender: 'cash' | 'upi';
   completedAt?: string;
 };
+
+export function returnTenderLabel(receipt:ReturnReceipt) {
+  if (receipt.tender!=='upi' || !receipt.cashRefundMinor) return receipt.tender.toUpperCase();
+  const format=new Intl.NumberFormat(undefined,{style:'currency',currency:receipt.currency});
+  return 'Cash '+format.format(receipt.cashRefundMinor/100)+' + UPI '+format.format((-receipt.differenceMinor-receipt.cashRefundMinor)/100);
+}
