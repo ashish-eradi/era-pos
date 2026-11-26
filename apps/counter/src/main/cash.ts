@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { cashAmount, catalogLine, saleTotals, isCashReceiptV1 } from '@era/contracts';
 import type { CashReceiptV1, SyncAcknowledgementV1, SyncRequestV1 } from '@era/contracts';
 import type { CashInput, CashState } from '../bridge';
-import { cachedCatalog } from './catalog';
+import { cachedCatalog, checkCustomer } from './catalog';
 import { apiUrl, catalogCredential, pairing } from './pairing';
 import { cashFromReturns } from './returns';
 import { queuedShiftCloses, syncShiftCloses } from './shift-sync';
@@ -60,9 +60,9 @@ export function cashState(database: DatabaseSync): CashState {
     WHERE r.register_id = ? GROUP BY status
   `).all(identity.registerId);
   return {
-    parked: database.prepare(`SELECT operation_id, parked_at, json_array_length(lines) AS items FROM parked_sales
+    parked: database.prepare(`SELECT operation_id, parked_at, customer_code, json_array_length(lines) AS items FROM parked_sales
       WHERE register_id=? ORDER BY parked_at`).all(identity.registerId)
-      .map(row => ({ id:String(row.operation_id),parkedAt:String(row.parked_at),items:Number(row.items) })),
+      .map(row => ({ id:String(row.operation_id),customerCode:row.customer_code ? String(row.customer_code) : undefined,parkedAt:String(row.parked_at),items:Number(row.items) })),
     queue: database.prepare(`SELECT o.id,o.status,o.attempts,o.error,o.attempted_at FROM cash_outbox o
       JOIN cash_receipts r ON r.id=o.id WHERE r.register_id=? ORDER BY r.rowid`).all(identity.registerId)
       .map(row => ({ id: String(row.id), status: String(row.status), attempts: Number(row.attempts),
@@ -82,16 +82,18 @@ export function startShift(database: DatabaseSync, amount: number, shiftId: stri
   return cashState(database);
 }
 
-export function parkSale(db: DatabaseSync,id: string,lines: CashInput['lines']) {
+export function parkSale(db: DatabaseSync,id: string,lines: CashInput['lines'],customerCode?: string) {
   const registerId = register(db).registerId;
   if (!openShift(db,registerId) || savedUpi(db) || receipt(db,id)) throw new Error('Open an unpaid sale before parking');
-  const stock = new Map(cachedCatalog(db)?.items.map(item => [item.sku,item.onHand]));
+  const catalog = cachedCatalog(db);
+  checkCustomer(catalog,customerCode);
+  const stock = new Map(catalog?.items.map(item => [item.sku,item.onHand]));
   if (!operationPattern.test(id) || !Array.isArray(lines) || !lines.length || lines.length>100 ||
       lines.some(line => !line || !Number.isInteger(line.quantity) || line.quantity<1 ||
         line.quantity>Math.min(1000,stock.get(line.sku) ?? 0)) || new Set(lines.map(line => line.sku)).size!==lines.length)
     throw new Error('Review the cart before parking');
-  db.prepare('INSERT OR REPLACE INTO parked_sales(register_id,operation_id,lines,parked_at) VALUES (?,?,?,?)')
-    .run(registerId,id,JSON.stringify(lines.map(({sku,quantity})=>({sku,quantity}))),new Date().toISOString());
+  db.prepare('INSERT OR REPLACE INTO parked_sales(register_id,operation_id,lines,parked_at,customer_code) VALUES (?,?,?,?,?)')
+    .run(registerId,id,JSON.stringify(lines.map(({sku,quantity})=>({sku,quantity}))),new Date().toISOString(),customerCode ?? null);
   return cashState(db);
 }
 
@@ -167,6 +169,7 @@ export async function commitCash(database: DatabaseSync, input: CashInput,cashie
     if (!input.tender && upi && (!input.fallback || upi.status === 'paid')) {
       throw new Error('Confirm the alternate tender first. Paid UPI must be recorded as UPI');
     }
+    checkCustomer(catalog,upi ? upi.customerCode : input.customerCode);
     const bySku = new Map(catalog.items.map((item) => [item.sku, item]));
     const lines = input.lines.map(({ sku, quantity }) => {
       const item = bySku.get(sku);
@@ -183,6 +186,7 @@ export async function commitCash(database: DatabaseSync, input: CashInput,cashie
       if (invoiceNumber.length>16) throw new Error('Invoice series exhausted');
     }
     const payload: CashReceiptV1 = {
+      customerCode:upi ? upi.customerCode : input.customerCode,
       cashier,kind: 'cash_sale', shiftId: shift.id, currency: catalog.currency, lines,
       brand:catalog.brand, invoiceNumber,buyer:invoiceNumber ? upi?.buyer ?? input.buyer : undefined,placeOfSupply:invoiceNumber ? upi?.placeOfSupply ?? input.placeOfSupply ?? catalog.receiptGstin?.slice(0,2) : undefined,
       merchantName: catalog.merchantName, receiptAddress: catalog.receiptAddress, receiptGstin: catalog.receiptGstin,

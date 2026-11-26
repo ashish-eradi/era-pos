@@ -3,6 +3,7 @@ import { Action, ApiError, Field, request, values } from '../onboarding';
 import { useMerchantData } from './useMerchantData';
 import type { StockAlert } from './Overview';
 import { CatalogImport } from './CatalogImport';
+import { Customers } from './Customers';
 import { CashSales } from './CashSales';
 import { Subscription } from './Subscription';
 import { Inventory } from './Inventory';
@@ -87,7 +88,7 @@ export function MerchantHome() {
     }}><Field name="code" label="Invitation code" type="password" /></Action></div> : <>
       <aside className={menu ? "rail expanded" : "rail"}><button className="menu-trigger" aria-expanded={menu} onClick={()=>setMenu(!menu)}>Workspace menu</button><h2 id="merchant-title">Workspace</h2>
       <nav className="tabs" aria-label="Merchant sections">{['Overview', ...(session.role === 'owner' ? ['Catalog'] : []),
-        ...(['owner','manager'].includes(session.role) ? ['Inventory','Returns','Team and registers'] : []),
+        ...(['owner','manager'].includes(session.role) ? ['Customers','Inventory','Returns','Team and registers'] : []),
         ...(['owner','manager','accountant'].includes(session.role) ? ['Sales'] : []),
         ...(session.role === 'owner' ? ['Receipt settings','Payments','Subscription','Integrations','Support'] : [])].map(name =>
           <button key={name} aria-current={section === name ? 'page' : undefined} onClick={() => {setSection(name);setMenu(false);}}>{name}{name === 'Inventory' && !!stock.data?.length && <span className="stock-count" aria-label={`${stock.data.length} low-stock items`}>{stock.data.length}</span>}</button>)}</nav>
@@ -101,6 +102,7 @@ export function MerchantHome() {
       {section === 'Receipt settings' && session.role === 'owner' && <ReceiptSettings key={session.merchantId} path={`merchants/${session.merchantId}/receipt-settings`} token={session.token}/>}
       {section === 'Subscription' && session.role === 'owner' && <Subscription path={`merchants/${session.merchantId}`} token={session.token} />}
       {section === 'Sales' && branch && session.role === 'owner' && <CashSales path={`merchants/${session.merchantId}/cash-sales?branch=${encodeURIComponent(branch.id)}`} token={session.token} />}
+      {section === 'Customers' && branch && ['owner','manager'].includes(session.role) && <Customers key={branch.id} path={`merchants/${session.merchantId}/branches/${branch.id}/customers`} token={session.token} timezone={branch.timezone}/>}
       {section === 'Support' && session.role === 'owner' && <SupportTickets merchantId={session.merchantId} token={session.token} />}
       {section === 'Integrations' && session.role === 'owner' && <>
         <Action title="Register sales webhook" run={async form => {

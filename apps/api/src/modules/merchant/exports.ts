@@ -23,6 +23,7 @@ export async function completeNextMerchantExport(database: Pool): Promise<void> 
             FROM catalog_barcodes c WHERE c.merchant_id = job.merchant_id
           ), '[]'::jsonb)
         ) || CASE WHEN export.kind = 'archive' THEN jsonb_build_object(
+          'customers', COALESCE((SELECT jsonb_agg(to_jsonb(c) - 'merchant_id') FROM customers c WHERE c.merchant_id = job.merchant_id),'[]'),
           'catalog', COALESCE((SELECT jsonb_agg(to_jsonb(c) - 'merchant_id') FROM branch_catalog c WHERE c.merchant_id = job.merchant_id),'[]'),
           'stockMovements', COALESCE((SELECT jsonb_agg(to_jsonb(m) - 'merchant_id') FROM stock_movements m WHERE m.merchant_id = job.merchant_id),'[]'),
           'inventoryDocuments', COALESCE((SELECT jsonb_agg(to_jsonb(d) - ARRAY['merchant_id','digest']) FROM inventory_documents d WHERE d.merchant_id = job.merchant_id),'[]'),

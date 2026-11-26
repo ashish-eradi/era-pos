@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { cashAmount, catalogLine, saleTotals, validBuyer, gstStates } from '@era/contracts';
 import type { CashInput, UpiCheckout } from '../bridge';
-import { cachedCatalog } from './catalog';
+import { cachedCatalog, checkCustomer } from './catalog';
 import { apiUrl, catalogCredential, pairing } from './pairing';
 
 export function savedUpi(database: DatabaseSync): UpiCheckout | undefined {
@@ -29,6 +29,7 @@ export async function upi(database: DatabaseSync, input?: CashInput): Promise<Up
   let checkout = savedUpi(database);
   const firstRequest = !checkout && !!input;
   if (input) {
+    checkCustomer(catalog,input.customerCode);
     if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(input.operationId) || input.discountMinor ||
       input.catalogVersion !== catalog.version || !Array.isArray(input.lines) || !input.lines.length || input.lines.length > 100) {
       throw new Error('Review the UPI cart. This pilot uses the full catalog price');
@@ -60,7 +61,7 @@ export async function upi(database: DatabaseSync, input?: CashInput): Promise<Up
     if (!amount || !cashAmount(amount)) throw new Error('Enter a positive UPI total');
     if (checkout && checkout.operationId !== input.operationId) throw new Error('Finish the existing UPI attempt first');
     checkout ??= { registerId: scope.registerId, operationId: input.operationId, shiftId: input.shiftId,
-      lines, cashPortionMinor:cashPart || undefined,buyer:input.buyer,placeOfSupply:input.placeOfSupply, amountMinor: amount, status: 'pending', shortUrl: null, catalogVersion: catalog.version };
+      lines, customerCode:input.customerCode, cashPortionMinor:cashPart || undefined,buyer:input.buyer,placeOfSupply:input.placeOfSupply, amountMinor: amount, status: 'pending', shortUrl: null, catalogVersion: catalog.version };
     persist(database, checkout);
   }
   if (!checkout) throw new Error('Start a UPI payment first');

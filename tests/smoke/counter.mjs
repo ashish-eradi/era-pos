@@ -58,6 +58,7 @@ const server = createServer(async (request, response) => {
   if (request.url === '/v1/devices/cash-sales') {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
+    assert.equal(input.operation.payload.customerCode,'C-1');
     assert.equal(input.operation.payload.cashier.id,'cashier-1');
     assert.equal(input.operation.payload.placeOfSupply,'27');
     assert.equal(input.operation.payload.invoiceNumber,input.operation.payload.tender==='upi'?'42-2':'42-1');
@@ -109,7 +110,7 @@ const server = createServer(async (request, response) => {
     response.writeHead(201, { 'content-type': 'application/json' });
     response.end(JSON.stringify({
       merchantId: 'fixture-in', branchId: 'central', registerId: 'counter-1', currency: 'INR', version: '1',
-      invoiceSeries:'42',gstRates:{Stationery:18},gstInclusive:true,receiptGstin:'27ABCDE1234F1Z5',
+      customers:[{code:'C-1',name:'Test shopper'}],invoiceSeries:'42',gstRates:{Stationery:18},gstInclusive:true,receiptGstin:'27ABCDE1234F1Z5',
       items: [{ category:'Stationery',hsn:'4820',sku: 'NOTE-A5', product: 'A5 notebook', barcode: '0012345678905', priceMinor: 12900, onHand: 2, attributes: {},
         photo:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWV8AAAAASUVORK5CYII=' }],
     }));
@@ -208,6 +209,9 @@ async function launch(activate = false,resumePayment=false) {
               if (next === 1.5 && complete) {
                 const quantity = checkout.querySelector('[aria-label="Quantity for A5 notebook"]');
                 if (quantity?.value !== '2') throw new Error('Scanner did not add both items');
+                const customer = complete.form.elements.customerCode;
+                customer.value='C-1';
+                customer.dispatchEvent(new Event('change',{bubbles:true}));
                 quantity.focus();
                 quantity.value = '1';
                 quantity.blur();
@@ -252,6 +256,10 @@ async function launch(activate = false,resumePayment=false) {
               add.click();
             } else if (next === 3 && button('Start UPI payment')) {
               window.checkoutStep = 4;
+              const customer=checkout.querySelector('select[name=customerCode]');
+              if (customer.value) throw new Error('A new sale must default to walk-in');
+              customer.value='C-1';
+              customer.dispatchEvent(new Event('change',{bubbles:true}));
               const field=document.querySelector('input[name=cashPart]');
               Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,'30');
               field.dispatchEvent(new Event('input',{bubbles:true}));

@@ -227,11 +227,26 @@ export async function checkOnboarding(port, connectionString) {
     assert.equal(taxedCatalog.items.find(item=>item.sku==='NOTE-A5').photo,photo);
     await call(`${importPath}/items`,owner.token,201,{...notebook,photo:null});
     assert.equal((await call('devices/catalog',freshProof,201,{deviceId})).items.find(item=>item.sku==='NOTE-A5').photo,null);
+    const customers = branchPath+'/customers';
+    const customer = {code:'member-01',name:'Example customer',email:'buyer@example.test'};
+    await call(customers,owner.token,201,customer);
+    await call(customers,owner.token,201,customer);
+    await call(customers,owner.token,409,{...customer,name:'Someone else'});
+    await call(customers,otherOwner.token,401);
+    await call(customers,staff.token,200);
+    await call(merchant+'/branches/'+second.id+'/customers',staff.token,404);
+    const customerList = (await call('devices/catalog',freshProof,201,{deviceId})).customers;
+    assert.deepEqual(customerList,[{name:customer.name,code:'MEMBER-01'}]);
+    assert.deepEqual((await call('devices/catalog',otherProof,201,{deviceId:otherDevice})).customers,[]);
+    await call(merchant+'/branches/'+second.id+'/customers/MEMBER-01/purchases',owner.token,404);
     const invoice = {...operation,operationId:randomUUID(),payload:{...operation.payload,discountMinor:0,approval:undefined,
-      invoiceNumber:taxedCatalog.invoiceSeries+'-1',receiptGstin:receiptSettings.gstin,placeOfSupply:'29',
+      customerCode:'MEMBER-01',invoiceNumber:taxedCatalog.invoiceSeries+'-1',receiptGstin:receiptSettings.gstin,placeOfSupply:'29',
       tenderedMinor:15222,lines:operation.payload.lines.map(line=>({...line,gst:{hsn:'4820',inclusive:false,rate:18}}))}};
     assert.equal((await call('devices/cash-sales',freshProof,201,{deviceId,operation:invoice})).status,'committed');
     assert.equal((await call('devices/cash-sales',freshProof,201,{deviceId,operation:invoice})).status,'replayed');
+    await call(customers,owner.token,201,{...customer,edit:true,name:'Updated customer'});
+    const purchases = await call(customers+'/MEMBER-01/purchases',owner.token,200);
+    assert.deepEqual(purchases.map(p=>[p.id,p.totalMinor,p.lines[0].sku]),[[invoice.operationId,15222,'NOTE-A5']]);
     const syncedInvoice=(await call(`${merchant}/cash-sales`,owner.token,200)).find(row=>row.id===invoice.operationId);
     assert.equal(syncedInvoice.receipt.totalMinor,15222);
     const quoted=await call('devices/returns',freshProof,201,{deviceId,id:randomUUID(),action:'create',shiftId:invoice.payload.shiftId,
@@ -314,7 +329,7 @@ export async function checkOnboarding(port, connectionString) {
       for (const table of [
         'support_events', 'support_grants', 'support_tickets', 'register_health',
         'sale_returns', 'shift_closes', 'cash_sales', 'cash_discount_approvals',
-        'stock_movements', 'catalog_imports', 'branch_catalog',
+        'stock_movements', 'catalog_imports', 'branch_catalog', 'customers',
         'onboarding_audit', 'activation_codes', 'invitations', 'merchant_audit', 'registers',
         'membership_sessions', 'branch_assignments', 'memberships', 'catalog_barcodes', 'branches', 'entitlements', 'trials',
       ]) await db.query(`DELETE FROM ${table} WHERE merchant_id = ANY($1)`, [merchants]);
