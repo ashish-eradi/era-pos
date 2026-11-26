@@ -61,8 +61,10 @@ export class CatalogController {
     return transaction(this.database, async client => {
       await owner(client, merchant, authorization);
       const attributes = Object.fromEntries(Object.entries(query).map(([key,value]) => [text(key,'attribute',40),text(value,'value',80)]));
-      return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",category,hsn,attributes,photo,modifiers FROM branch_catalog
-        WHERE merchant_id=$1 AND branch_id=$2 AND attributes @> $3::jsonb ORDER BY sku`, [merchant,branch,JSON.stringify(attributes)])).rows;
+      return (await client.query(`SELECT sku,product,barcode,price_minor AS "priceMinor",category,hsn,attributes,photo,modifiers,
+        CASE m.country_code WHEN 'IN' THEN 'INR' ELSE 'USD' END AS currency
+        FROM branch_catalog c JOIN merchants m ON m.id=c.merchant_id
+        WHERE c.merchant_id=$1 AND c.branch_id=$2 AND c.attributes @> $3::jsonb ORDER BY sku`, [merchant,branch,JSON.stringify(attributes)])).rows;
     });
   }
 

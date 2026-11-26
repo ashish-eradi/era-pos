@@ -1,3 +1,4 @@
+import { checkBarcodeLabels } from './barcode-labels.mjs';
 import assert from 'node:assert/strict';
 import { app, BrowserWindow } from 'electron';
 import { createServer } from 'node:http';
@@ -11,6 +12,7 @@ async function main() {
   const profile = await mkdtemp(join(tmpdir(),'era-web-ui-'));
   app.setPath('userData',profile);
   const transfers = [];
+  const codes = {TEA:'茶-' + '0123456789'.repeat(6),COFFEE:'0012345678905'};
   const purchaseOrders = [];
   const customers = new Map();
   const modifiers = new Map();
@@ -78,7 +80,7 @@ async function main() {
         path.endsWith('/C-1/purchases') ? [{id:'linked-sale',register:'A',occurredAt:'2026-11-24T10:00:00Z',currency:'INR',totalMinor:500,lines:[{sku:'TEA',product:'Tea',quantity:1}]}] :
         path.endsWith('/dashboard') ? {currency:'INR',returns:0,products:[],categories:[],buckets:[],
           registers:[{id:'A',name:'Till A',provisional:false}]} :
-        path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map((sku,i)=>({sku,product:sku,barcode:'001'+i,priceMinor:500,modifiers:modifiers.get(sku),photo:photos.get(sku)})) :
+        path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map(sku=>({sku,product:sku,barcode:codes[sku],currency:'INR',priceMinor:500,modifiers:modifiers.get(sku),photo:photos.get(sku)})) :
         path.endsWith('/daily-close') ? {currency:'INR',grossMinor:'12500',netMinor:'12500',date:'2026-11-24',
           provisional:false,sales:[{id:'receipt-1',register_id:'A',receipt:{currency:'INR',totalMinor:12500}}],
           registers:[{id:'A',name:'Till A',provisional:false}],returns:[],shifts:[],settlements:[],providerRefunds:[]} : [];
@@ -123,6 +125,7 @@ async function main() {
     await waitFor("document.body.innerText.includes('receipt-1')");
     await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Catalog').click()");
     await waitFor("document.querySelectorAll('.desk tbody tr').length===2");
+    await checkBarcodeLabels(run,waitFor,codes);
     await run(`const search = document.querySelector('input[type=search]');
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'f');
       search.dispatchEvent(new Event('input',{bubbles:true}));`);

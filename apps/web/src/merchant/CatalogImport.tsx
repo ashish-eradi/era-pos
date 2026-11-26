@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import type { ItemModifier } from '@era/contracts';
 import { Action, request } from '../onboarding';
 
+const BarcodeLabels = lazy(() => import('./BarcodeLabels').then(module=>({default:module.BarcodeLabels})));
+
 type Draft = {
   digest: string;
-  rows: Array<{ sku: string; modifiers?: ItemModifier[]; photo?: string | null; category?: string | null; hsn?:string|null; product: string; barcode: string; priceMinor: number; openingStock: number | null }>;
+  rows: Array<{ sku: string; currency?: 'INR'|'USD'; modifiers?: ItemModifier[]; photo?: string | null; category?: string | null; hsn?:string|null; product: string; barcode: string; priceMinor: number; openingStock: number | null }>;
   issues: Array<{ row: number; message: string }>;
 };
 
@@ -72,6 +74,7 @@ export function CatalogImport({ path, token }: { path: string; token: string }) 
     <label>Sort items<select value={sort} onChange={e => setSort(e.target.value as typeof sort)}>
       <option value="sku">SKU</option><option value="product">Product</option><option value="priceMinor">Price</option>
     </select></label>
+    {!loading && !failure && items.length>0 && <Suspense fallback={null}><BarcodeLabels items={visible}/></Suspense>}
     {failure && <p role="alert">{failure}</p>}
     {loading ? <p role="status">Loading catalog…</p> : !failure && !visible.length && <p>No matching catalog items.</p>}
     <table><thead><tr><th>SKU</th><th>Barcode</th><th>Product and price</th></tr></thead>

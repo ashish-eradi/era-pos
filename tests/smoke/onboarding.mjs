@@ -155,7 +155,10 @@ export async function checkOnboarding(port, connectionString) {
     assert.equal(updated.version, '2');
     assert.equal(updated.items[0].product, edited.product);
     assert.equal(updated.items[0].onHand, otherSnapshot.items[0].onHand);
-    assert.equal((await call(`${otherPath}/items`, otherOwner.token, 200))[0].priceMinor, 499);
+    const [usItem] = await call(`${otherPath}/items`, otherOwner.token, 200);
+    assert.equal(usItem.priceMinor,499);
+    assert.equal(usItem.currency,'USD');
+    assert.equal((await call(`${importPath}/items`,owner.token,200))[0].currency,'INR');
     assert.equal(snapshot.items[0].priceMinor, 12900);
 
     const access = await call(issue, owner.token, 201, {});
