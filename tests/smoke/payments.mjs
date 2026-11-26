@@ -231,6 +231,35 @@ export async function checkPayments(port, connectionString, provider) {
     assert.equal((await call(`${inventory}/delivery`, 201, delivery, token)).duplicate, false);
     assert.equal((await call(`${inventory}/delivery`, 201, delivery, token)).duplicate, true);
     await call(`${inventory}/delivery`, 409, { ...delivery, lines: [{ sku: 'NOTE', quantity: 2 }] }, token);
+    const orders = branchPath+'/purchase-orders';
+    const order = {reference:'PO-42',supplier:'Paper Mill',lines:[{sku:'NOTE',quantity:6,unitCostMinor:2750}]};
+    await call(orders,401,order,proof);
+    await call(orders,404,{...order,lines:[{sku:'UNKNOWN',quantity:1,unitCostMinor:50}]},token);
+    const created = await call(orders,201,order,token);
+    assert.deepEqual(await call(orders,201,order,token),{id:created.id,duplicate:true});
+    await call(orders,409,{...order,supplier:'Another supplier'},token);
+    assert.equal((await call(inventory,200,undefined,token)).items[0].onHand,3);
+    const shipment = {reference:'shipment-A',purchaseOrderId:created.id,lines:[{sku:'NOTE',quantity:2}]};
+    const repeats = await Promise.all([1,2].map(()=>call(inventory+'/delivery',201,shipment,token)));
+    assert.equal(repeats.filter(result=>result.duplicate).length,1);
+    const partialDelivery = await call(inventory,200,undefined,token);
+    assert.equal(partialDelivery.items[0].onHand,5);
+    assert.equal(partialDelivery.orders[0].status,'partial');
+    assert.equal(partialDelivery.orders[0].lines[0].received,2);
+    assert.equal(partialDelivery.documents.find(doc=>doc.reference===shipment.reference).purchase_order_id,created.id);
+    await call(inventory+'/delivery',409,{...shipment,reference:'too-many',lines:[{sku:'NOTE',quantity:5}]},token);
+    const finalShipment = {...shipment,reference:'shipment-B',lines:[{sku:'NOTE',quantity:4}]};
+    await call(inventory+'/delivery',201,finalShipment,token);
+    const full = await call(inventory,200,undefined,token);
+    assert.equal(full.orders[0].status,'received');
+    assert.equal(full.items[0].onHand,9);
+    assert.equal((await call(inventory+'/delivery',201,finalShipment,token)).duplicate,true);
+    await call(orders+'/'+created.id+'/cancel',409,{},token);
+    const cancelled = await call(orders,201,{...order,reference:'PO-43'},token);
+    await call(inventory+'/delivery',201,{...shipment,reference:'shipment-C',purchaseOrderId:cancelled.id},token);
+    await call(orders+'/'+cancelled.id+'/cancel',201,{},token);
+    await call(inventory+'/delivery',409,{...shipment,reference:'shipment-D',purchaseOrderId:cancelled.id},token);
+    assert.equal((await call(inventory,200,undefined,token)).items[0].onHand,11);
     const count = await call(`${inventory}/count`, 201, { reference: 'count-1', lines: [{ sku: 'NOTE', quantity: 2 }] }, token);
     const counted = await call(`${inventory}/count/${count.id}/approve`, 201, { reason: 'Missing item' }, token);
     assert.equal(counted.approved, true);
@@ -316,6 +345,7 @@ export async function checkPayments(port, connectionString, provider) {
       await new Promise((resolve) => setTimeout(resolve,250));
     }
     assert.equal(archive.merchantId, merchant);
+    assert.equal(archive.purchaseOrders.length,2);
     assert.equal(archive.sales.length, 3);
     assert.equal(archive.subscriptionPayments.length, 2);
     assert.equal(JSON.stringify(archive).includes(proof), false);
@@ -324,7 +354,7 @@ export async function checkPayments(port, connectionString, provider) {
   } finally {
     try {
       await db.query('BEGIN');
-      for (const table of ['subscription_events','subscription_payments','subscription_invoices','subscriptions','merchant_exports','upi_settlements','upi_refunds','upi_events','upi_attempts','shift_closes','inventory_documents','sale_returns','cash_sales','stock_movements',
+      for (const table of ['subscription_events','subscription_payments','subscription_invoices','subscriptions','merchant_exports','upi_settlements','upi_refunds','upi_events','upi_attempts','shift_closes','inventory_documents','purchase_orders','sale_returns','cash_sales','stock_movements',
         'branch_catalog','catalog_barcodes','activation_codes','merchant_audit','registers','entitlements','membership_sessions','memberships','branches']) {
         await db.query(`DELETE FROM ${table} WHERE merchant_id = $1`, [merchant]);
       }
