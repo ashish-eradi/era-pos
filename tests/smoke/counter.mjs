@@ -110,7 +110,8 @@ const server = createServer(async (request, response) => {
     response.end(JSON.stringify({
       merchantId: 'fixture-in', branchId: 'central', registerId: 'counter-1', currency: 'INR', version: '1',
       invoiceSeries:'42',gstRates:{Stationery:18},gstInclusive:true,receiptGstin:'27ABCDE1234F1Z5',
-      items: [{ category:'Stationery',hsn:'4820',sku: 'NOTE-A5', product: 'A5 notebook', barcode: '0012345678905', priceMinor: 12900, onHand: 2, attributes: {} }],
+      items: [{ category:'Stationery',hsn:'4820',sku: 'NOTE-A5', product: 'A5 notebook', barcode: '0012345678905', priceMinor: 12900, onHand: 2, attributes: {},
+        photo:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWV8AAAAASUVORK5CYII=' }],
     }));
     return;
   }
@@ -197,7 +198,7 @@ async function launch(activate = false,resumePayment=false) {
             const complete = button('Complete cash sale');
             if (${!online}) {
               if (next === 0 && open) { window.checkoutStep = 1; open.click(); }
-              if (next === 1 && add) {
+              if (next === 1 && add?.querySelector('img')?.naturalWidth === 1) {
                 window.checkoutStep = 1.5;
                 for (let scan=0; scan<2; scan++) {
                   for (const key of [...'0012345678905','Enter'])
@@ -246,7 +247,7 @@ async function launch(activate = false,resumePayment=false) {
             } else if (next === 1 && checkout.textContent.includes('1 pending') && checkout.querySelector('[role=alert]') && sync) {
               window.checkoutStep = 2;
               sync.click();
-            } else if (next === 2 && checkout.textContent.includes('0 pending') && add) {
+            } else if (next === 2 && checkout.textContent.includes('0 pending') && add?.querySelector('img')?.naturalWidth === 1) {
               window.checkoutStep = 3;
               add.click();
             } else if (next === 3 && button('Start UPI payment')) {

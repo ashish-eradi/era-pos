@@ -216,10 +216,17 @@ export async function checkOnboarding(port, connectionString) {
     const receiptSettings = {name:'Demo store',legalName:'Demo legal',address:'Example address',gstin:'27ABCDE1234F1Z5',
       brand:{footer:'Visit again'},rates:{Stationery:18},inclusive:false};
     await call(`${merchant}/receipt-settings`,owner.token,201,receiptSettings);
+    const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWV8AAAAASUVORK5CYII=';
+    const notebook = {sku:'NOTE-A5',product:'A5 notebook',priceMinor:12900};
+    await call(`${importPath}/items`,owner.token,400,{...notebook,photo:'invalid'});
+    await call(`${importPath}/items`,owner.token,201,{...notebook,photo});
     await call(`${importPath}/items`,owner.token,201,{sku:'NOTE-A5',product:'A5 notebook',priceMinor:12900,hsn:'4820'});
     const taxedCatalog = await call('devices/catalog',freshProof,201,{deviceId});
     assert.equal(taxedCatalog.gstRates.Stationery,18);
     assert.equal(taxedCatalog.items.find(item=>item.sku==='NOTE-A5').hsn,'4820');
+    assert.equal(taxedCatalog.items.find(item=>item.sku==='NOTE-A5').photo,photo);
+    await call(`${importPath}/items`,owner.token,201,{...notebook,photo:null});
+    assert.equal((await call('devices/catalog',freshProof,201,{deviceId})).items.find(item=>item.sku==='NOTE-A5').photo,null);
     const invoice = {...operation,operationId:randomUUID(),payload:{...operation.payload,discountMinor:0,approval:undefined,
       invoiceNumber:taxedCatalog.invoiceSeries+'-1',receiptGstin:receiptSettings.gstin,placeOfSupply:'29',
       tenderedMinor:15222,lines:operation.payload.lines.map(line=>({...line,gst:{hsn:'4820',inclusive:false,rate:18}}))}};

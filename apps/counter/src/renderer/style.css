@@ -40,6 +40,7 @@ kbd { font:600 .67rem monospace; padding:.12rem .35rem; border:1px solid current
 .product-list .product-tile { display:grid; align-content:start; gap:.3rem; width:100%; min-height:8rem; padding:1rem; overflow-wrap:anywhere; }
 .product-list .product-tile:focus-visible { outline-offset:-4px; }
 .product-tile strong { font-size:1.22rem; }
+.product-photo { width:100%; height:5rem; object-fit:contain; }
 .basket li { margin:.5rem 0; padding:.8rem; background:white; border:1px solid var(--line); border-radius:.65rem; }
 .basket li button { min-width:48px; margin:.25rem; }
 .totals-list { display:grid; grid-template-columns:1fr auto; margin:0; }
