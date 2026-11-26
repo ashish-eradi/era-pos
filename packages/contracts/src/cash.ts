@@ -16,7 +16,7 @@ export function validModifiers(value: unknown): value is ItemModifier[] {
   }
   return true;
 }
-export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number; gst?:GstLine; modifiers?: ItemModifier[] };
+export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number; mrpMinor?: number; gst?:GstLine; modifiers?: ItemModifier[] };
 export type CashReceiptV1 = {
   kind: 'cash_sale';
   customerCode?: string;
@@ -63,6 +63,7 @@ export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
       typeof line.product === 'string' && line.product.length > 0 && line.product.length <= 150 && !line.product.includes('\0') &&
       Number.isInteger(line.quantity) && line.quantity > 0 && line.quantity <= 1000 && cashAmount(line.unitMinor))) return false;
   if ((receipt.buyer !== undefined || receipt.placeOfSupply !== undefined) && receipt.invoiceNumber === undefined) return false;
+  if (receipt.lines.some(line=>line.mrpMinor!==undefined && !cashAmount(line.mrpMinor))) return false;
   if (receipt.lines.some(line => line.modifiers !== undefined && (!validModifiers(line.modifiers) ||
     line.modifiers.reduce((sum,m)=>sum+m.priceMinor,0) > line.unitMinor))) return false;
   if (receipt.brand !== undefined && (!receipt.brand || typeof receipt.brand !== 'object' || Array.isArray(receipt.brand) ||

@@ -12,7 +12,7 @@ export class Customers {
   list(@Param('merchant') merchant: string, @Param('branch') branch: string, @Headers('authorization') auth?: string) {
     return transaction(this.database, async client => {
       await branchActor(client,merchant,branch,['owner','manager'],auth);
-      return (await client.query('SELECT code,name,email FROM customers WHERE merchant_id=$1 AND branch_id=$2 ORDER BY name,code',[merchant,branch])).rows;
+      return (await client.query('SELECT code,name,email,phone FROM customers WHERE merchant_id=$1 AND branch_id=$2 ORDER BY name,code',[merchant,branch])).rows;
     });
   }
 
@@ -25,14 +25,16 @@ export class Customers {
       if (!/^[A-Z0-9][A-Z0-9-]{0,31}$/.test(code)) throw new BadRequestException('Use letters, numbers and hyphens for the customer code');
       const name = text(data.name,'customer name');
       const address = data.email == null || data.email === '' ? null : email(data.email);
-      const fields = [merchant,branch,code,name,address];
+      const phone = data.phone == null || data.phone === '' ? null : text(data.phone,'phone number',24).replace(/[ ()-]/g,'');
+      if (phone && !/^\+?\d{7,15}$/.test(phone)) throw new BadRequestException('Enter a valid phone number');
+      const fields = [merchant,branch,code,name,address,phone];
       if (data.edit === true) {
-        const updated = await client.query('UPDATE customers SET name=$4,email=$5 WHERE merchant_id=$1 AND branch_id=$2 AND code=$3',fields);
+        const updated = await client.query('UPDATE customers SET name=$4,email=$5,phone=CASE WHEN $7 THEN $6 ELSE phone END WHERE merchant_id=$1 AND branch_id=$2 AND code=$3',[...fields,data.phone !== undefined]);
         if (!updated.rowCount) throw new NotFoundException();
       } else {
-        const added = await client.query('INSERT INTO customers (merchant_id,branch_id,code,name,email) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',fields);
+        const added = await client.query('INSERT INTO customers (merchant_id,branch_id,code,name,email,phone) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING',fields);
         if (!added.rowCount) {
-          const same = await client.query('SELECT 1 FROM customers WHERE merchant_id=$1 AND branch_id=$2 AND code=$3 AND name=$4 AND email IS NOT DISTINCT FROM $5',fields);
+          const same = await client.query('SELECT 1 FROM customers WHERE merchant_id=$1 AND branch_id=$2 AND code=$3 AND name=$4 AND email IS NOT DISTINCT FROM $5 AND phone IS NOT DISTINCT FROM $6',fields);
           if (!same.rowCount) throw new ConflictException('This customer code is already assigned');
         }
       }

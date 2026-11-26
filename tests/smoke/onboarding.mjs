@@ -100,6 +100,9 @@ export async function checkOnboarding(port, connectionString) {
     assert.equal(draft.rows.length, 3);
     assert.equal((await call('devices/catalog', pairingProof, 201, { deviceId })).items.length, 0);
     await call(`${importPath}/confirm`, owner.token, 400, { csv, digest: 'wrong-digest' });
+    const mrpCsv=csv.trimEnd().split(/\r?\n/).map((row,i)=>row+(i?',19900':',mrp_minor')).join('\n');
+    const mrpDraft=await call(`${importPath}/preview`,owner.token,201,{csv:mrpCsv});
+    assert.deepEqual(mrpDraft.issues,[]);assert.equal(mrpDraft.rows[0].mrpMinor,19900);
     const publication = { csv, digest: draft.digest };
     assert.deepEqual(await call(`${importPath}/confirm`, owner.token, 201, publication), { version: '1', replayed: false });
     assert.deepEqual(await call(`${importPath}/confirm`, owner.token, 201, publication), { version: '1', replayed: true });
@@ -238,7 +241,7 @@ export async function checkOnboarding(port, connectionString) {
     await call(`${importPath}/items`,owner.token,201,{...notebook,photo:null});
     assert.equal((await call('devices/catalog',freshProof,201,{deviceId})).items.find(item=>item.sku==='NOTE-A5').photo,null);
     const customers = branchPath+'/customers';
-    const customer = {code:'member-01',name:'Example customer',email:'buyer@example.test'};
+    const customer = {code:'member-01',name:'Example customer',email:'buyer@example.test',phone:'+91 98765 00000'};
     await call(customers,owner.token,201,customer);
     await call(customers,owner.token,201,customer);
     await call(customers,owner.token,409,{...customer,name:'Someone else'});
@@ -246,12 +249,12 @@ export async function checkOnboarding(port, connectionString) {
     await call(customers,staff.token,200);
     await call(merchant+'/branches/'+second.id+'/customers',staff.token,404);
     const customerList = (await call('devices/catalog',freshProof,201,{deviceId})).customers;
-    assert.deepEqual(customerList,[{name:customer.name,code:'MEMBER-01'}]);
+    assert.deepEqual(customerList,[{name:customer.name,code:'MEMBER-01',phone:'+919876500000'}]);
     assert.deepEqual((await call('devices/catalog',otherProof,201,{deviceId:otherDevice})).customers,[]);
     await call(merchant+'/branches/'+second.id+'/customers/MEMBER-01/purchases',owner.token,404);
     const invoice = {...operation,operationId:randomUUID(),payload:{...operation.payload,discountMinor:0,approval:undefined,
       customerCode:'MEMBER-01',invoiceNumber:taxedCatalog.invoiceSeries+'-1',receiptGstin:receiptSettings.gstin,placeOfSupply:'29',
-      tenderedMinor:17582,lines:operation.payload.lines.map(line=>({...line,unitMinor:14900,modifiers,gst:{hsn:'4820',inclusive:false,rate:18}}))}};
+      tenderedMinor:17582,lines:operation.payload.lines.map(line=>({...line,unitMinor:14900,mrpMinor:19900,modifiers,gst:{hsn:'4820',inclusive:false,rate:18}}))}};
     assert.equal((await call('devices/cash-sales',freshProof,201,{deviceId,operation:invoice})).status,'committed');
     assert.equal((await call('devices/cash-sales',freshProof,201,{deviceId,operation:invoice})).status,'replayed');
     await call(customers,owner.token,201,{...customer,edit:true,name:'Updated customer'});
@@ -259,6 +262,7 @@ export async function checkOnboarding(port, connectionString) {
     assert.deepEqual(purchases.map(p=>[p.id,p.totalMinor,p.lines[0].sku]),[[invoice.operationId,17582,'NOTE-A5']]);
     const syncedInvoice=(await call(`${merchant}/cash-sales`,owner.token,200)).find(row=>row.id===invoice.operationId);
     assert.equal(syncedInvoice.receipt.totalMinor,17582);
+    assert.equal(syncedInvoice.receipt.lines[0].mrpMinor,19900);
     await call(`${importPath}/items`,owner.token,201,{...notebook,modifiers:[]});
     const quoted=await call('devices/returns',freshProof,201,{deviceId,id:randomUUID(),action:'create',shiftId:invoice.payload.shiftId,
       saleId:invoice.operationId,reason:'Test return',lines:[{sku:'NOTE-A5',quantity:1,disposition:'sellable'}]});

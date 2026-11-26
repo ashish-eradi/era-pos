@@ -39,3 +39,18 @@ th { color:var(--muted); font-size:.85rem; }
 .tabs button:hover:enabled { background:#e4eadc; color:var(--deep); }
 .canvas { max-width:1400px; margin:auto; padding:clamp(1rem,3vw,3rem); }
 [hidden] { display:none !important; }
+:root { --elevation:0 3px 12px #152e2315; --overlay-shadow:0 16px 64px #0b201e44; }
+dialog { width:min(31rem,94vw); max-height:88vh; overflow:auto; padding:1.4rem; border:1px solid var(--line); border-radius:1rem; background:var(--card); color:var(--ink); box-shadow:var(--overlay-shadow); }
+dialog::backdrop { background:#102b27aa; }
+.status-pill { display:inline-block; border-radius:2rem; padding:.1rem .55rem; background:#d3ecda; color:#214831; font-size:.87em; }
+.status-pill[data-state=pending],.status-pill[data-state=low-stock] { background:#fae6b3; color:#624409; }
+.status-pill[data-state=rejected] { background:#f8dbd5; color:#822c20; }
+.empty-state { border:1px dashed var(--line); padding:1rem; color:var(--muted); border-radius:.6rem; }
+.loading-skeleton { border-radius:.5rem; background:linear-gradient(100deg,var(--paper),var(--card),var(--paper)); background-size:200% 100%; animation:era-load 1.6s ease-in-out infinite; padding:.75rem; }
+@keyframes era-load { to { background-position:-200% 0; } }
+@media (prefers-reduced-motion:reduce) { .loading-skeleton { animation:none; } }
+.rail .tabs button, .section-head h1 { display:flex; align-items:center; gap:.55rem; }
+.payment-methods,.receipt-actions fieldset { display:flex; align-items:end; flex-wrap:wrap; gap:.5rem; }
+.payment-methods button[aria-pressed=false] { color:var(--ink); background:var(--paper); border-color:var(--line); }
+html[data-theme=dark] { color-scheme:dark; --ink:#ecf2ea; --muted:#bdd0c6; --paper:#152621; --card:#21352d; --line:#51675c; }
+html[data-theme=dark] :is(input,select,textarea,.product-tile,.total,.product-list li,.basket legend) { background:var(--card); color:var(--ink); }

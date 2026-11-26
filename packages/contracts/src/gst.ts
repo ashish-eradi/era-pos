@@ -32,6 +32,7 @@ export function catalogLine(item:CatalogSnapshotV1['items'][number],quantity:num
   const modifiers = item.modifiers?.filter(option => selected.includes(option.name)) ?? [];
   if (modifiers.length !== selected.length) throw new Error('An item modifier has changed. Review the cart.');
   return {sku:item.sku,product:item.product,quantity,unitMinor:item.priceMinor + modifiers.reduce((sum,m)=>sum+m.priceMinor,0),
+    ...(typeof item.mrpMinor==='number' && {mrpMinor:item.mrpMinor}),
     ...(modifiers.length > 0 && {modifiers}),
     ...(typeof rate === 'number' && {gst:{rate,inclusive:catalog.gstInclusive ?? true,hsn:item.hsn ?? ''}})};
 }
@@ -59,5 +60,7 @@ export function saleTotals(lines:CashLineV1[],discountMinor:number) {
     total += payable;
     return {discount,tax:lineTax,taxable:payable-lineTax,payable};
   });
-  return {subtotal,tax,total,breakdown};
+  const savings = lines.reduce((sum,line,i)=>sum+(line.mrpMinor == null ? 0 :
+    Math.max(0,line.mrpMinor*line.quantity-breakdown[i].payable)),0);
+  return {subtotal,tax,total,breakdown,savings};
 }

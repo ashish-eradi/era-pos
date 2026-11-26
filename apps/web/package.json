@@ -13,6 +13,7 @@
     "@era/contracts": "0.0.0",
     "chart.js": "^4.6.2",
     "jsbarcode": "^3.12.3",
+    "lucide-react": "^1.80.0",
     "qrcode.react": "^4.2.0",
     "react": "19.2.0",
     "react-dom": "19.2.0"

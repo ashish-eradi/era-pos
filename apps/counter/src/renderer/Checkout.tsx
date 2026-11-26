@@ -11,6 +11,9 @@ import type { CashState } from '../bridge';
 const blankBuyer = {name:'',address:'',gstin:'',deliveryAddress:''};
 export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: string; navigate: (page: string) => void; catalog?: CatalogSnapshotV1; reloadCatalog: () => Promise<void> }) {
   const [state, setState] = useState<CashState>();
+  const clearDialog = useRef<HTMLDialogElement>(null);
+  const [customerQuery,searchCustomer] = useState('');
+  const [method,setMethod] = useState<'cash'|'upi'|'split'>('cash');
   const [selectedCustomer,setCustomer] = useState('');
   const customerCode = state?.upi ? state.upi.customerCode : selectedCustomer || undefined;
   const [buyerDetails,setBuyerDetails]=useState(blankBuyer);
@@ -76,7 +79,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const pendingSales = state?.queue.filter(entry=>entry.status === 'pending').length ?? 0;
   useEffect(() => {
     const shortcuts = (event: KeyboardEvent) => {
-      if (page === 'Locked' || busy || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+      if (clearDialog.current?.open || page === 'Locked' || busy || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
       const tabs = ['Sell','Receipts','Returns','Register'];
       const tab = ['F1','F2','F3','F4'].indexOf(event.key);
       if (tab >= 0) { event.preventDefault(); navigate(tabs[tab]); return; }
@@ -87,8 +90,8 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         event.preventDefault(); saleForm.current.requestSubmit();
       }
       if (event.key === 'F10' && state?.shift && !payment) {event.preventDefault(); showClose(true);}
-      if (event.key === 'Escape' && !payment && !close && Object.values(cart).some(Boolean) && window.confirm('Clear the current cart?')) {
-        setCart({}); setOptions({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setDiscount(false); setOperationId(crypto.randomUUID());
+      if (event.key === 'Escape' && !payment && !close && Object.values(cart).some(Boolean)) {
+        event.preventDefault(); clearDialog.current?.showModal();
       }
     };
     window.addEventListener('keydown',shortcuts);
@@ -115,7 +118,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     let buffer = '';
     let lastKey = 0;
     function scan(event: KeyboardEvent) {
-      if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing ||
+      if (clearDialog.current?.open || event.ctrlKey || event.metaKey || event.altKey || event.isComposing ||
           (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]'))) {
         buffer = '';
         return;
@@ -136,7 +139,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     window.addEventListener('keydown', scan, true);
     return () => window.removeEventListener('keydown', scan, true);
   }, [page, catalog, state?.shift, busy, close, payment]);
-  useEffect(() => { if (!Object.values(cart).some(Boolean)) setCustomer(''); },[cart]);
+  useEffect(() => { if (!Object.values(cart).some(Boolean)) {setCustomer('');searchCustomer('');setMethod('cash');} },[cart]);
   const lines = items.filter(({ sku }) => cart[sku]).map(item => {
     const selected = (item.modifiers ?? []).filter(m=>options[item.sku]?.includes(m.name)).map(m=>m.name);
     return catalogLine(item,cart[item.sku],catalog!,selected);
@@ -229,6 +232,11 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   }
 
   return <section aria-labelledby="checkout-title">
+    <dialog aria-labelledby="clear-title" ref={clearDialog}><h3 id="clear-title">Clear the current cart?</h3>
+      <form method="dialog"><button autoFocus>Keep cart</button> <button onClick={()=>{
+        setCart({}); setOptions({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination('');
+        setTender(''); setReduction(''); setDiscount(false); setOperationId(crypto.randomUUID());
+      }}>Clear cart</button></form></dialog>
     <header className="counter-heading"><h2 id="checkout-title">{page === 'Sell' ? 'Checkout' : page}</h2>
       <button onClick={() => navigate('Register')}>{state?.shift ? 'Shift open' : 'Shift closed'} · {pending} pending · {state?.rejected ?? 0} need review</button></header>
     {pendingSales > 0 && <p className="queue-notice" role="status">{pendingSales} {pendingSales === 1 ? 'sale waiting' : 'sales waiting'} to sync.
@@ -281,16 +289,16 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         {lines.length > 0 && <form ref={saleForm} onSubmit={sell}>
           <fieldset disabled={busy}>
             <legend>Cart and payment</legend>
-            {!!catalog?.customers?.length && <label>Customer<select name="customerCode" disabled={!!payment} value={customerCode ?? ''} onChange={e=>setCustomer(e.target.value)}>
+            {!!catalog?.customers?.length && <><label>Find customer<input type="search" value={customerQuery} disabled={!!payment} onChange={e=>searchCustomer(e.target.value)} placeholder="Phone, name or code"/></label><label>Customer<select name="customerCode" disabled={!!payment} value={customerCode ?? ''} onChange={e=>setCustomer(e.target.value)}>
               <option value="">Walk-in sale</option>
-              {catalog.customers.map(customer=><option key={customer.code} value={customer.code}>{customer.name} · {customer.code}</option>)}
-            </select></label>}
+              {catalog.customers.filter(c=>c.code===customerCode || [c.name,c.code,c.phone].some(v=>v?.toLowerCase().includes(customerQuery.trim().toLowerCase()))).map(customer=><option key={customer.code} value={customer.code}>{customer.name} · {customer.code}</option>)}
+            </select></label></>}
             <button type="button" disabled={!!payment || discount} onClick={() => void run(async () => {
               setState(await window.counter.parkSale(operationId,checkoutLines,customerCode));
               setCart({}); setOptions({}); setCustomer(''); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setQuery(''); setLastReceipt('');
               setOperationId(crypto.randomUUID()); setNotice('Sale parked on this register.');
             })}>Park sale</button>
-            <ul>{lines.map((line,i) => <li key={line.sku}><b>{line.product}</b><small>{line.sku} · {money(line.unitMinor)} each · {money(totals.breakdown[i].payable)} due</small>
+            <ul>{lines.map((line,i) => <li key={line.sku}><b>{line.product}</b><small>{line.sku} · {line.mrpMinor!=null && <>MRP {money(line.mrpMinor)} · </>}{money(line.unitMinor)} each · {money(totals.breakdown[i].payable)} due</small>
               {items.find(item=>item.sku===line.sku)?.modifiers?.map(option=><label key={option.name}>
                 <input type="checkbox" disabled={!!payment} checked={!!options[line.sku]?.includes(option.name)}
                   onChange={event=>{
@@ -322,13 +330,15 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
               <button type="button" aria-label={`Add one ${line.product}`} disabled={!!payment || line.quantity >= Math.min(1000, items.find(item => item.sku === line.sku)!.onHand)} onClick={() => add(line.sku)}>+</button>
             </li>)}</ul>
             {lines.some(line=>line.gst) && <label>Place of supply<select required disabled={!!payment} value={placeOfSupply ?? ''} onChange={e=>setDestination(e.target.value)}>
-              {Object.entries(gstStates).sort().map(([code,name])=><option key={code} value={code}>{code} Â· {name}</option>)}</select></label>}
+              {Object.entries(gstStates).sort().map(([code,name])=><option key={code} value={code}>{code} · {name}</option>)}</select></label>}
             {lines.some(line=>line.gst) && <details open={totals.total>=5000000 || undefined}><summary>Buyer details{totals.total>=5000000 ? ' (required)' : ''}</summary>
               {(['name','address','gstin','deliveryAddress'] as const).map(key=><label key={key}>{{name:'Buyer name',address:'Billing address',gstin:'Buyer GSTIN (if registered)',deliveryAddress:'Delivery address (if different)'}[key]}
                 <input disabled={!!payment} maxLength={key==='name'?120:key==='gstin'?15:400} value={buyer?.[key] ?? ''} onChange={e=>setBuyerDetails({...buyerDetails,[key]:key==='gstin'?e.target.value.toUpperCase():e.target.value})}/></label>)}</details>}
             <dl className="totals-list"><dt>Before tax and discount</dt><dd>{money(totals.total-totals.tax+discountMinor)}</dd><dt>Tax</dt><dd>{money(totals.tax)}</dd><dt>Discount</dt><dd>{money(discount ? Math.round(Number(reduction)*100) : 0)}</dd></dl>
+            {totals.savings>0 && <p>You saved {money(totals.savings)}</p>}
             <p className="total">Amount due <strong>{money(totals.total)}</strong></p>
-            {catalog?.currency === 'INR' && !payment && !discount && <><label>Cash portion for split payment ({currency})<input name="cashPart" type="number" step=".01" min="0" placeholder="0" value={cashPart} onChange={e=>setCashPart(e.target.value)}/></label><button type="button" onClick={() => checkUpi(true)}>{Number(cashPart)>0?'Start split payment':'Start UPI payment'}</button></>}
+            {catalog?.currency === 'INR' && !payment && !discount && <div className="payment-methods" aria-label="Payment method">{(['cash','upi','split'] as const).map(value=><button type="button" key={value} aria-pressed={method===value} onClick={()=>{setMethod(value);setCashPart('');}}>{{cash:'Cash',upi:'UPI',split:'Split'}[value]}</button>)}</div>}
+            {catalog?.currency === 'INR' && !payment && !discount && method!=='cash' && <>{method==='split' && <label>Cash portion for split payment ({currency})<input name="cashPart" type="number" step=".01" min="0" placeholder="0" value={cashPart} onChange={e=>setCashPart(e.target.value)}/></label>}<button disabled={method==='split' && !(Number(cashPart)>0 && Math.round(Number(cashPart)*100)<totals.total)} type="button" onClick={() => checkUpi(true)}>{Number(cashPart)>0?'Start split payment':'Start UPI payment'}</button></>}
             {payment && <>
               <p>UPI {payment.status} · {money(payment.amountMinor)}{payment.cashPortionMinor ? ` · Cash to collect ${money(payment.cashPortionMinor)}` : ''}</p>
               {payment.shortUrl && payment.status === 'pending' && <>
@@ -340,7 +350,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
               {payment.status === 'paid' ? <button type="button" onClick={() => void run(() => complete(payment.amountMinor+(payment.cashPortionMinor ?? 0), 0, undefined, 'upi'))}>{payment.cashPortionMinor ? 'Confirm cash collected and record split sale':'Record UPI sale'}</button> :
                 <label><input type="checkbox" checked={fallback} onChange={(event) => setFallback(event.target.checked)} /> Accept cash instead. A delayed UPI payment may require a refund.</label>}
             </>}
-            {(!payment || (fallback && payment.status !== 'paid')) && <>
+            {((!payment && (method==='cash' || catalog?.currency!=='INR')) || (payment && fallback && payment.status !== 'paid')) && <>
             <button type="button" aria-expanded={discount} onClick={() => setDiscount(!discount)}>{discount ? 'Cancel discount' : 'Request discount'}</button>
             {discount && <>
               <p>Give the owner this sale ID to authorize the discount. <code>{operationId}</code></p>
@@ -365,7 +375,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     {state && <>
       <div className="panel" hidden={page !== "Register"}><button onClick={()=>void run(()=>window.counter.openCustomerDisplay())}>Open customer display</button><h3>Sync queue</h3><p>{state.pending} pending · {state.rejected} need review</p>
       <ul>{state.queue.map(entry => <li key={entry.id}>
-        {entry.id} · {entry.status} · {entry.attempts} sync attempts {entry.attemptedAt && new Date(entry.attemptedAt).toLocaleString()} {entry.error}
+        {entry.id} · <span className="status-pill" data-state={entry.status}>{entry.status}</span> · {entry.attempts} sync attempts {entry.attemptedAt && new Date(entry.attemptedAt).toLocaleString()} {entry.error}
         <button disabled={busy} onClick={() => void run(async () => {
           try { await window.counter.syncCash(entry.id); }
           finally { setState(await window.counter.cashState()); }
@@ -379,7 +389,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       </div>
       {page === 'Sell' && lastReceipt && <>{latestReceipt && <><SaleReceipt sale={latestReceipt}/><SendReceipt key={lastReceipt} id={lastReceipt}/></>}<button disabled={busy} onClick={() => void run(() => window.counter.printReceipt(lastReceipt,true))}>Print receipt</button><button onClick={() => {setLastReceipt('');setNotice('');searchInput.current?.focus();}}>Next sale</button></>}
       <div className="panel" hidden={page !== 'Receipts'}>
-      {!state.receipts.length && <p>No saved receipts yet.</p>}
+      {!state.receipts.length && <p className="empty-state">No saved receipts yet.</p>}
       {state.receipts.length > 0 && <><h3>Recent receipts</h3><ul>{state.receipts.map((sale) => <li key={sale.operationId}>
         {new Date(sale.occurredAt).toLocaleString()} · {money(saleTotals(sale.payload.lines,sale.payload.discountMinor).total, sale.payload.currency)} · {sale.status}{' '}
         <button disabled={busy} onClick={() => void run(() => window.counter.printReceipt(sale.operationId))}>

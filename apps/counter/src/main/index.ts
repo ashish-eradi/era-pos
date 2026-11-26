@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron';
+import { receiptText } from '@era/contracts';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { StorageStatus } from '../bridge';
@@ -180,8 +181,16 @@ async function start(): Promise<void> {
     if (receipt?.status !== 'complete') throw new Error('Completed return not found');
     return printReturn(receipt);
   });
-  ipcMain.handle('counter:send-receipt',(event,id:string,channel:'sms'|'email',recipient:string)=>{
-    counterOnly(event);return sendReceipt(storage,id,channel,recipient);
+  ipcMain.handle('counter:send-receipt',(event,id:string,channel:'sms'|'email'|'whatsapp'|'whatsapp-draft',recipient:string)=>{
+    counterOnly(event);
+    if (channel==='whatsapp-draft') {
+      if (!/^\+[1-9]\d{6,14}$/.test(recipient)) throw new Error('Use an international mobile number');
+      const sale=receiptToPrint(storage,id);
+      const url=new URL('https://wa.me/'+recipient.slice(1));
+      url.searchParams.set('text',receiptText(sale.payload,id,new Date(sale.occurredAt),sale.registerId));
+      return shell.openExternal(url.href);
+    }
+    return sendReceipt(storage,id,channel,recipient);
   });
   ipcMain.handle('counter:print-receipt', (event, id: string,firstPrint?:boolean) => {
     counterOnly(event);
