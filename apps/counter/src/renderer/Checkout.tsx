@@ -254,6 +254,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         {matches.length ? <ul className="product-list">{matches.map((item) => <li key={item.sku}>
           <button className="product-tile" type="button" aria-label={`Add ${item.product}, ${item.sku}`}
             disabled={busy || !!payment || (cart[item.sku] ?? 0) >= Math.min(1000, item.onHand)} onClick={() => add(item.sku)}>
+            {item.photo && <img className="product-photo" src={item.photo} alt="" loading="lazy" />}
             <small>{categoryOf(item)}</small><b>{item.product}</b><strong>{money(item.priceMinor)}</strong>
             <small>{item.sku} &middot; {item.onHand} on hand</small>
             {Object.entries(item.attributes).map(([key,value]) => <small key={key}>{key} {value}</small>)}

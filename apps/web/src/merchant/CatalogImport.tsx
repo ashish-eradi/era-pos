@@ -3,9 +3,29 @@ import { Action, request } from '../onboarding';
 
 type Draft = {
   digest: string;
-  rows: Array<{ sku: string; category?: string | null; hsn?:string|null; product: string; barcode: string; priceMinor: number; openingStock: number | null }>;
+  rows: Array<{ sku: string; photo?: string | null; category?: string | null; hsn?:string|null; product: string; barcode: string; priceMinor: number; openingStock: number | null }>;
   issues: Array<{ row: number; message: string }>;
 };
+
+async function productPhoto(form: FormData) {
+  const file = form.get('photo');
+  const remove = form.has('removePhoto');
+  if (!(file instanceof File) || !file.size) return remove ? null : undefined;
+  if (remove) throw new Error('Choose either a replacement photo or removal');
+  if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 5_000_000)
+    throw new Error('Choose a PNG, JPEG or WebP image up to 5 MB');
+  const image = await createImageBitmap(file).catch(() => { throw new Error('Could not read this photo'); });
+  try {
+    const scale = Math.min(1, 128 / Math.max(image.width, image.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Could not resize this photo');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+  } finally { image.close(); }
+}
 
 export function CatalogImport({ path, token }: { path: string; token: string }) {
   const [items, setItems] = useState<Draft['rows']>([]);
@@ -44,9 +64,11 @@ export function CatalogImport({ path, token }: { path: string; token: string }) 
     <table><thead><tr><th>SKU</th><th>Barcode</th><th>Product and price</th></tr></thead>
       <tbody>{visible.sort((a,b) => sort === 'priceMinor' ? a.priceMinor-b.priceMinor : a[sort].localeCompare(b[sort])).map(item =>
         <tr key={item.sku}><td>{item.sku}</td><td>{item.barcode}</td><td><Action key={JSON.stringify(item)} title="Save item" run={async form => {
-          await request(`${path}/items`, token, { sku: item.sku, category: form.get('category'), hsn:form.get('hsn'), product: form.get('product'), priceMinor: Number(form.get('price')) });
+          await request(`${path}/items`, token, { sku: item.sku, photo: await productPhoto(form), category: form.get('category'), hsn:form.get('hsn'), product: form.get('product'), priceMinor: Number(form.get('price')) });
           refresh(n=>n+1); return 'Saved';
         }}><label>Product<input name="product" required maxLength={150} defaultValue={item.product} /></label>
+          {item.photo && <><img src={item.photo} alt={item.product} loading="lazy" height="64" /><label><input name="removePhoto" type="checkbox" />Remove photo</label></>}
+          <label>Product photo<input name="photo" type="file" accept="image/png,image/jpeg,image/webp" /></label>
           <label>HSN<input name="hsn" inputMode="numeric" pattern="(?:[0-9]{4}|[0-9]{6}|[0-9]{8})" defaultValue={item.hsn ?? ''}/></label>
           <label>Category<input name="category" maxLength={80} defaultValue={item.category ?? ''} /></label>
           <label>Price (minor units)<input name="price" required type="number" min="0" max="1000000000" defaultValue={item.priceMinor} /></label>

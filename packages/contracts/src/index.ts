@@ -30,6 +30,7 @@ export type CatalogSnapshotV1 = {
     sku: string;
     product: string;
     barcode: string;
+    photo?: string | null;
     priceMinor: number;
     attributes: Record<string, string>;
     onHand: number;

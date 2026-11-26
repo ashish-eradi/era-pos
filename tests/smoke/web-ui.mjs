@@ -10,14 +10,22 @@ import { setTimeout as delay } from 'node:timers/promises';
 async function main() {
   const profile = await mkdtemp(join(tmpdir(),'era-web-ui-'));
   app.setPath('userData',profile);
+  const photos = new Map();
   const server = createServer(async (req,res) => {
     const path = new URL(req.url,'http://localhost').pathname;
     if (path.startsWith('/v1/')) {
+      if (path.endsWith('/catalog/items') && req.method === 'POST') {
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        const item = JSON.parse(Buffer.concat(chunks));
+        photos.set(item.sku,item.photo);
+        res.setHeader('Content-Type','application/json'); res.end('{"updated":true}'); return;
+      }
       const result = path.endsWith('invitations/accept') ? {merchantId:'demo',role:'owner',token:'test'} :
         path.endsWith('/branches') ? ['Central','West'].map(id=>({id,name:id,timezone:'UTC',catalogDefaults:[]})) :
         path.endsWith('/dashboard') ? {currency:'INR',returns:0,products:[],categories:[],buckets:[],
           registers:[{id:'A',name:'Till A',provisional:false}]} :
-        path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map((sku,i)=>({sku,product:sku,barcode:'001'+i,priceMinor:500})) :
+        path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map((sku,i)=>({sku,product:sku,barcode:'001'+i,priceMinor:500,photo:photos.get(sku)})) :
         path.endsWith('/daily-close') ? {currency:'INR',grossMinor:'12500',netMinor:'12500',date:'2026-11-24',
           provisional:false,sales:[{id:'receipt-1',register_id:'A',receipt:{currency:'INR',totalMinor:12500}}],
           registers:[{id:'A',name:'Till A',provisional:false}],returns:[],shifts:[],settlements:[],providerRefunds:[]} : [];
@@ -62,9 +70,23 @@ async function main() {
     await waitFor("document.body.innerText.includes('receipt-1')");
     await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Catalog').click()");
     await waitFor("document.querySelectorAll('.desk tbody tr').length===2");
-    await run("document.querySelector('input[type=search]').focus()");
-    win.webContents.sendInputEvent({type:'char',keyCode:'f'});
+    await run(`const search = document.querySelector('input[type=search]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'f');
+      search.dispatchEvent(new Event('input',{bubbles:true}));`);
     await waitFor("document.querySelectorAll('.desk tbody tr').length===1 && document.querySelector('.desk tbody').textContent.includes('COFFEE')");
+    await run(`(async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640; canvas.height = 320;
+      const blob = await new Promise(resolve => canvas.toBlob(resolve));
+      const files = new DataTransfer();
+      files.items.add(new File([blob],'product.png',{type:'image/png'}));
+      const input = document.querySelector('input[name=photo]');
+      input.files = files.files;
+      input.form.requestSubmit();
+    })()`);
+    await waitFor("document.querySelector('tbody img')?.naturalWidth === 128 && document.querySelector('tbody img').naturalHeight === 64");
+    await run("const remove=document.querySelector('input[name=removePhoto]');remove.click();remove.form.requestSubmit()");
+    await waitFor("!document.querySelector('tbody img')");
     win.setContentSize(390,844);
     await waitFor("document.querySelector('.menu-trigger').offsetWidth > 0");
     await run("document.querySelector('.menu-trigger').click()");
