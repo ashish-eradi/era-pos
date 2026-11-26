@@ -10,12 +10,31 @@ import { setTimeout as delay } from 'node:timers/promises';
 async function main() {
   const profile = await mkdtemp(join(tmpdir(),'era-web-ui-'));
   app.setPath('userData',profile);
+  const purchaseOrders = [];
   const customers = new Map();
   const modifiers = new Map();
   const photos = new Map();
   const server = createServer(async (req,res) => {
     const path = new URL(req.url,'http://localhost').pathname;
     if (path.startsWith('/v1/')) {
+      if (path.endsWith('/purchase-orders') && req.method==='POST') {
+        const chunks=[];
+        for await (const chunk of req) chunks.push(chunk);
+        const order=JSON.parse(Buffer.concat(chunks));
+        assert.deepEqual(order.lines,[{sku:'TEA',quantity:5,unitCostMinor:200}]);
+        purchaseOrders.push({...order,id:'po-1',created_at:new Date().toISOString(),status:'open',currency:'INR',
+          lines:order.lines.map(line=>({...line,product:'Tea',received:0}))});
+        res.setHeader('Content-Type','application/json'); res.end('{"id":"po-1","duplicate":false}'); return;
+      }
+      if (path.endsWith('/inventory/delivery') && req.method==='POST') {
+        const chunks=[];
+        for await (const chunk of req) chunks.push(chunk);
+        const delivery=JSON.parse(Buffer.concat(chunks));
+        assert.equal(delivery.purchaseOrderId,'po-1');
+        assert.deepEqual(delivery.lines,[{sku:'TEA',quantity:2}]);
+        purchaseOrders[0].status='partial'; purchaseOrders[0].lines[0].received=2;
+        res.setHeader('Content-Type','application/json'); res.end('{"duplicate":false}'); return;
+      }
       if (path.endsWith('/customers') && req.method === 'POST') {
         const body = [];
         for await (const chunk of req) body.push(chunk);
@@ -33,6 +52,7 @@ async function main() {
       }
       const result = path.endsWith('invitations/accept') ? {merchantId:'demo',role:'owner',token:'test'} :
         path.endsWith('/branches') ? ['Central','West'].map(id=>({id,name:id,timezone:'UTC',catalogDefaults:[]})) :
+        path.endsWith('/inventory') ? {items:[{sku:'TEA',product:'Tea',onHand:0,damaged:0,threshold:null}],documents:[],orders:purchaseOrders} :
         path.endsWith('/customers') ? [...customers.values()] :
         path.endsWith('/C-1/purchases') ? [{id:'linked-sale',register:'A',occurredAt:'2026-11-24T10:00:00Z',currency:'INR',totalMinor:500,lines:[{sku:'TEA',product:'Tea',quantity:1}]}] :
         path.endsWith('/dashboard') ? {currency:'INR',returns:0,products:[],categories:[],buckets:[],
@@ -111,6 +131,22 @@ async function main() {
     await waitFor("document.body.innerText.includes('Purchase history') && document.querySelector('.desk section details:last-child summary')");
     await run("document.querySelector('.desk section details:last-child summary').click()");
     await waitFor("document.body.innerText.includes('linked-sale') && document.body.innerText.includes('Tea')");
+    await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Inventory').click()");
+    await waitFor("document.body.innerText.includes('New purchase order')");
+    await run(`const poForm=document.querySelector('input[name=supplier]').form;
+      poForm.closest('details').open=true;
+      poForm.elements.reference.value='PO-42';poForm.elements.supplier.value='Tea Co';
+      poForm.elements['ordered-0'].value='5';poForm.elements['cost-0'].value='200';poForm.requestSubmit();`);
+    await waitFor("document.body.innerText.includes('PO-42 · Tea Co · Open')");
+    await run("[...document.querySelectorAll('summary')].find(s=>s.textContent.includes('PO-42')).click()");
+    const downloading = new Promise(resolve=>win.webContents.session.once('will-download',(event,item)=>{
+      event.preventDefault();resolve(item.getFilename());
+    }));
+    await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Download purchase order').click()");
+    assert.equal(await Promise.race([downloading,delay(5000,'timeout')]),'purchase-order-PO-42.txt');
+    await run(`const receiptForm=document.querySelector('input[name=received-0]').form;
+      receiptForm.elements.reference.value='shipment-A';receiptForm.elements['received-0'].value='2';receiptForm.requestSubmit();`);
+    await waitFor("document.body.innerText.includes('Partially received') && document.body.innerText.includes('3 outstanding')");
     win.setContentSize(390,844);
     await waitFor("document.querySelector('.menu-trigger').offsetWidth > 0");
     await run("document.querySelector('.menu-trigger').click()");

@@ -17,6 +17,7 @@ import { DigitalReceipts } from './modules/cash/digital-receipts';
 import { Customers } from './modules/merchant/customers';
 import { Cashiers } from './modules/cash/cashiers';
 import { ClosesController } from './modules/cash/closes';
+import { PurchaseOrders } from './modules/catalog/purchase-orders';
 import { InventoryController } from './modules/catalog/inventory';
 import { BillingController } from './modules/merchant/billing';
 import { SupportController } from './modules/support/support';
@@ -62,7 +63,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController, CashController, Customers, Cashiers, DigitalReceipts, ReturnsController, ClosesController, RecoveryController, InventoryController, BillingController, SupportController, PaymentsController, MerchantWebhooks, BranchShifts, MerchantSignup],
+  controllers: [HealthController, MerchantController, OnboardingController, PlatformController, CatalogController, CashController, Customers, Cashiers, DigitalReceipts, ReturnsController, ClosesController, RecoveryController, InventoryController, PurchaseOrders, BillingController, SupportController, PaymentsController, MerchantWebhooks, BranchShifts, MerchantSignup],
   providers: [{ provide: MERCHANT_DATABASE, useValue: database }],
 })
 class ApiModule {

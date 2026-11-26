@@ -1,3 +1,4 @@
+import { receivePurchase } from './purchase-orders';
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Body, ConflictException, Controller, Get, Headers, Inject, NotFoundException, Param, Post } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
@@ -47,10 +48,12 @@ export class InventoryController {
       await branchActor(client,merchant,branch,operators,authorization);
       const items = await inventory(client,[merchant,branch],null);
       const { rows } = await client.query(`
-        SELECT id,kind,reference,lines,created_at,entered_by,approved_by,approved_at,approval_note FROM inventory_documents
+        SELECT id,kind,reference,lines,purchase_order_id,created_at,entered_by,approved_by,approved_at,approval_note FROM inventory_documents
         WHERE merchant_id = $1 AND branch_id = $2 ORDER BY (approved_at IS NULL) DESC,created_at DESC LIMIT 100
       `, [merchant,branch]);
-      return { items, documents: rows };
+      const orders = await client.query(`SELECT id,reference,supplier,currency,status,lines,created_at FROM purchase_orders
+        WHERE merchant_id=$1 AND branch_id=$2 ORDER BY (status IN ('open','partial')) DESC,created_at DESC,id`,[merchant,branch]);
+      return { items, documents: rows, orders:orders.rows };
     });
   }
 
@@ -100,7 +103,9 @@ export class InventoryController {
     }).sort((first,second) => first.sku.localeCompare(second.sku));
     const skus = lines.map(({ sku }) => sku);
     if (new Set(skus).size !== skus.length) throw new BadRequestException('List each SKU once');
-    const hash = digest(JSON.stringify(lines));
+    const orderId = data.purchaseOrderId === undefined ? null : uuid(data.purchaseOrderId,'purchase order');
+    if (orderId && kind!=='delivery') throw new BadRequestException('Link a purchase order to a supplier delivery');
+    const hash = digest(JSON.stringify(orderId ? [orderId,lines] : lines));
     return transaction(this.database, async (client) => {
       const actor = await branchActor(client,merchant,branch,operators,authorization);
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [JSON.stringify([merchant,branch,kind,reference])]);
@@ -112,6 +117,7 @@ export class InventoryController {
         return { id: existing.rows[0].id, duplicate: true };
       }
       const scope: Scope = [merchant,branch];
+      if (orderId) await receivePurchase(client,scope,orderId,lines);
       const current = await inventory(client,scope,skus);
       const bySku = new Map(current.map((item) => [item.sku,item]));
       const saved = kind === 'count' ? lines.map((line) => ({
@@ -119,9 +125,9 @@ export class InventoryController {
       })) : lines;
       const id = randomUUID();
       await client.query(`
-        INSERT INTO inventory_documents (merchant_id,branch_id,id,kind,reference,digest,lines,entered_by,approved_by,approved_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $4 = 'delivery' THEN $8 END,CASE WHEN $4 = 'delivery' THEN now() END)
-      `, [...scope,id,kind,reference,hash,JSON.stringify(saved),actor]);
+        INSERT INTO inventory_documents (merchant_id,branch_id,id,kind,reference,digest,lines,entered_by,approved_by,approved_at,purchase_order_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $4 = 'delivery' THEN $8 END,CASE WHEN $4 = 'delivery' THEN now() END,$9)
+      `, [...scope,id,kind,reference,hash,JSON.stringify(saved),actor,orderId]);
       if (kind === 'delivery') await moveStock(client,scope,'delivery',lines);
       return { id, duplicate: false };
     });

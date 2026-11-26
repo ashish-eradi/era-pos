@@ -123,7 +123,7 @@ export function MerchantHome() {
           <p>{branch.timezone}{branch.catalogDefaults.length > 0 && ` · Suggested catalog attributes: ${branch.catalogDefaults.join(', ')}`}</p>
           {['owner','manager','accountant'].includes(session.role) && section === 'Sales' && <DailyClose path={`${path}/branches/${branch.id}`}
             initialDate={businessDate || date} token={session.token} timezone={branch.timezone} canApprove={session.role !== 'accountant'} />}
-          {['owner','manager'].includes(session.role) && section === 'Inventory' && <Inventory path={`${path}/branches/${branch.id}/inventory`} token={session.token} changed={()=>refreshStock(n=>n+1)} />}
+          {['owner','manager'].includes(session.role) && section === 'Inventory' && <Inventory branchName={branch.name} branchPath={`${path}/branches/${branch.id}`} token={session.token} changed={()=>refreshStock(n=>n+1)} />}
           {['owner', 'manager'].includes(session.role) && section === 'Returns' && <ReturnApprovals path={`${path}/branches/${branch.id}/returns`} token={session.token} />}
           {section === 'Catalog' && session.role === 'owner' && <CatalogImport path={`${path}/branches/${branch.id}/catalog`} token={session.token} />}
           {section === 'Team and registers' && session.role === 'owner' && <>

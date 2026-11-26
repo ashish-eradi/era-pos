@@ -26,6 +26,7 @@ export async function completeNextMerchantExport(database: Pool): Promise<void> 
           'customers', COALESCE((SELECT jsonb_agg(to_jsonb(c) - 'merchant_id') FROM customers c WHERE c.merchant_id = job.merchant_id),'[]'),
           'catalog', COALESCE((SELECT jsonb_agg(to_jsonb(c) - 'merchant_id') FROM branch_catalog c WHERE c.merchant_id = job.merchant_id),'[]'),
           'stockMovements', COALESCE((SELECT jsonb_agg(to_jsonb(m) - 'merchant_id') FROM stock_movements m WHERE m.merchant_id = job.merchant_id),'[]'),
+          'purchaseOrders', COALESCE((SELECT jsonb_agg(to_jsonb(p) - ARRAY['merchant_id','digest']) FROM purchase_orders p WHERE p.merchant_id=job.merchant_id),'[]'),
           'inventoryDocuments', COALESCE((SELECT jsonb_agg(to_jsonb(d) - ARRAY['merchant_id','digest']) FROM inventory_documents d WHERE d.merchant_id = job.merchant_id),'[]'),
           'sales', COALESCE((SELECT jsonb_agg(to_jsonb(s) - ARRAY['merchant_id','digest']) FROM cash_sales s WHERE s.merchant_id = job.merchant_id),'[]'),
           'returns', COALESCE((SELECT jsonb_agg(to_jsonb(r) - ARRAY['merchant_id','digest']) FROM sale_returns r WHERE r.merchant_id = job.merchant_id),'[]'),

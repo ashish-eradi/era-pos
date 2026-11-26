@@ -1,17 +1,21 @@
+import { PurchaseOrders } from './PurchaseOrders';
+import type { PurchaseOrder } from './PurchaseOrders';
 import { useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
 import { useMerchantData } from './useMerchantData';
 
 type InventoryState = {
   items: { sku: string; product: string; onHand: number; damaged: number; threshold:number|null }[];
+  orders: PurchaseOrder[];
   documents: {
-    id: string; kind: 'delivery' | 'count'; reference: string;
+    id: string; kind: 'delivery' | 'count'; reference: string; purchase_order_id: string | null;
     lines: { sku: string; quantity: number; onHand?: number }[];
     approved_by: string | null; approval_note: string | null;
   }[];
 };
 
-export function Inventory({ path, token, changed }: { path: string; token: string; changed:()=>void }) {
+export function Inventory({ branchPath, branchName, token, changed }: { branchPath: string; branchName:string; token: string; changed:()=>void }) {
+  const path = branchPath + '/inventory';
   const [revision,setRevision] = useState(0);
   const {data:state,error} = useMerchantData<InventoryState>(path,token,revision);
   function load() { setRevision(n=>n+1); changed(); }
@@ -28,6 +32,7 @@ export function Inventory({ path, token, changed }: { path: string; token: strin
         }}><input name="threshold" type="number" min="0" max="1000000000" defaultValue={item.threshold ?? ''} placeholder="Off" aria-label={`Low-stock threshold for ${item.sku}`}/></Action>
       </td></tr>)}</tbody>
     </table>}
+    {state && <PurchaseOrders branchPath={branchPath} branchName={branchName} token={token} items={state.items} orders={state.orders} changed={load}/>}
     {state && <Action title="Record inventory document" run={async (form) => {
       const data = values(form);
       const lines = state.items.flatMap(({ sku }, index) => {
@@ -48,6 +53,7 @@ export function Inventory({ path, token, changed }: { path: string; token: strin
     </Action>}
     {state?.documents.map((doc) => <details key={doc.id}>
       <summary>{doc.kind} {doc.reference} · {doc.approved_by ? 'Posted' : 'Awaiting approval'}</summary>
+      {doc.purchase_order_id && <p>Purchase order {state.orders.find(order=>order.id===doc.purchase_order_id)?.reference}</p>}
       <ul>{doc.lines.map((line) => <li key={line.sku}>{line.sku} · {line.quantity}{line.onHand !== undefined && ` counted, ${line.onHand} expected`}</li>)}</ul>
       {doc.approval_note && <p>{doc.approval_note}</p>}
       {doc.kind === 'count' && !doc.approved_by && <Action title="Approve count" run={async (form) => {
