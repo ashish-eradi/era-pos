@@ -82,7 +82,8 @@ async function main() {
           registers:[{id:'A',name:'Till A',provisional:false}]} :
         path.endsWith('/catalog/items') ? ['TEA','COFFEE'].map(sku=>({sku,product:sku,barcode:codes[sku],currency:'INR',priceMinor:500,modifiers:modifiers.get(sku),photo:photos.get(sku)})) :
         path.endsWith('/daily-close') ? {currency:'INR',grossMinor:'12500',netMinor:'12500',date:'2026-11-24',
-          provisional:false,sales:[{id:'receipt-1',register_id:'A',receipt:{currency:'INR',totalMinor:12500}}],
+          provisional:false,sales:[{id:'receipt-1',register_id:'A',receipt:{currency:'INR',totalMinor:12500,
+            discountMinor:0,lines:[{sku:'T',quantity:1,unitMinor:12500}]}}],
           registers:[{id:'A',name:'Till A',provisional:false}],returns:[],shifts:[],settlements:[],providerRefunds:[]} : [];
       res.setHeader('Content-Type','application/json'); res.end(JSON.stringify(result)); return;
     }
@@ -123,6 +124,12 @@ async function main() {
     await waitFor("!!document.querySelector('.sales-metric')");
     await run("document.querySelector('.sales-metric').click()");
     await waitFor("document.body.innerText.includes('receipt-1')");
+    await run("[...document.querySelectorAll('summary')].find(s=>s.textContent==='Tally accounting export').click()");
+    const tallyDownload = new Promise(resolve=>win.webContents.session.once('will-download',(event,item)=>{
+      event.preventDefault();resolve(item.getFilename());
+    }));
+    await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Download Tally XML').click()");
+    assert.equal(await Promise.race([tallyDownload,delay(5000,'timeout')]),'era-tally-West-2026-11-24.xml');
     await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Catalog').click()");
     await waitFor("document.querySelectorAll('.desk tbody tr').length===2");
     await checkBarcodeLabels(run,waitFor,codes);
