@@ -260,6 +260,48 @@ export async function checkPayments(port, connectionString, provider) {
     await call(orders+'/'+cancelled.id+'/cancel',201,{},token);
     await call(inventory+'/delivery',409,{...shipment,reference:'shipment-D',purchaseOrderId:cancelled.id},token);
     assert.equal((await call(inventory,200,undefined,token)).items[0].onHand,11);
+    const receivingBranch = 'second-store';
+    const receivingPath = 'merchants/'+merchant+'/branches/'+receivingBranch;
+    const managerToken = randomBytes(32).toString('base64url');
+    await db.query("INSERT INTO branches (merchant_id,id,name,timezone) VALUES ($1,$2,'Second store','Asia/Kolkata')",[merchant,receivingBranch]);
+    await db.query("INSERT INTO memberships VALUES ($1,'transfer-manager','stock-manager','manager',true)",[merchant]);
+    await db.query("INSERT INTO branch_assignments VALUES ($1,'transfer-manager',$2)",[merchant,branch]);
+    await db.query("INSERT INTO membership_sessions(token_digest,merchant_id,membership_id,expires_at) VALUES ($1,$2,'transfer-manager',now()+interval '1 hour')",[digest(managerToken),merchant]);
+    const transfers = branchPath+'/transfers';
+    const dispatch = {reference:'TX-1',destination:receivingBranch,lines:[{sku:'NOTE',quantity:7}]};
+    await call(transfers,400,{...dispatch,destination:branch},token);
+    await call(transfers,400,dispatch,token);
+    await db.query("INSERT INTO branch_catalog VALUES ($1,$2,'NOTE','Notebook','0001',10000,'{}')",[merchant,receivingBranch]);
+    const sends = await Promise.all([1,2].map(()=>call(transfers,201,dispatch,managerToken)));
+    assert.equal(sends.filter(sent=>sent.duplicate).length,1);
+    await call(transfers,409,{...dispatch,reference:'TX-OVER'},token);
+    await call(transfers,409,{...dispatch,lines:[{sku:'NOTE',quantity:1}]},token);
+    const receive = receivingPath+'/transfers/'+sends[0].id+'/receive';
+    const deliveryNote = {reference:'ARR-1',lines:[{sku:'NOTE',quantity:3}]};
+    await call(receive,404,deliveryNote,managerToken);
+    await call(transfers+'/'+sends[0].id+'/receive',404,deliveryNote,token);
+    const receivingInventory = receivingPath+'/inventory';
+    assert.equal((await call(inventory,200,undefined,token)).items[0].onHand,4);
+    assert.equal((await call(receivingInventory,200,undefined,token)).items[0].onHand,0);
+    const arrivals = await Promise.all([1,2].map(()=>call(receive,201,deliveryNote,token)));
+    assert.equal(arrivals.filter(r=>r.duplicate).length,1);
+    await call(receive,409,{...deliveryNote,reference:'OVER',lines:[{sku:'NOTE',quantity:5}]},token);
+    const arrived = await call(receivingInventory,200,undefined,token);
+    assert.equal(arrived.items[0].onHand,3);
+    assert.equal(arrived.transfers[0].incoming,true);
+    assert.equal(arrived.transfers[0].lines[0].received,3);
+    assert.equal(arrived.transfers[0].receipts.length,1);
+    const missing = receivingPath+'/transfers/'+sends[0].id+'/shortage';
+    await call(missing,201,{reason:'Carrier confirmed four missing'},token);
+    await call(missing,201,{reason:'Carrier confirmed four missing'},token);
+    await call(receive,409,{...deliveryNote,reference:'LATE'},token);
+    const completed = await call(transfers,201,{...dispatch,reference:'TX-2',lines:[{sku:'NOTE',quantity:2}]},token);
+    await call(receivingPath+'/transfers/'+completed.id+'/receive',201,{reference:'ARR-2',lines:[{sku:'NOTE',quantity:2}]},token);
+    const finished = await call(receivingInventory,200,undefined,token);
+    assert.equal(finished.items[0].onHand,5);
+    assert.equal(finished.transfers.find(t=>t.id===completed.id).status,'received');
+    assert.equal(finished.transfers.find(t=>t.id===sends[0].id).status,'short');
+    assert.equal((await call(inventory,200,undefined,token)).items[0].onHand,2);
     const count = await call(`${inventory}/count`, 201, { reference: 'count-1', lines: [{ sku: 'NOTE', quantity: 2 }] }, token);
     const counted = await call(`${inventory}/count/${count.id}/approve`, 201, { reason: 'Missing item' }, token);
     assert.equal(counted.approved, true);
@@ -345,6 +387,8 @@ export async function checkPayments(port, connectionString, provider) {
       await new Promise((resolve) => setTimeout(resolve,250));
     }
     assert.equal(archive.merchantId, merchant);
+    assert.equal(archive.stockTransfers.length,2);
+    assert.equal(archive.stockTransferReceipts.length,2);
     assert.equal(archive.purchaseOrders.length,2);
     assert.equal(archive.sales.length, 3);
     assert.equal(archive.subscriptionPayments.length, 2);
@@ -354,8 +398,8 @@ export async function checkPayments(port, connectionString, provider) {
   } finally {
     try {
       await db.query('BEGIN');
-      for (const table of ['subscription_events','subscription_payments','subscription_invoices','subscriptions','merchant_exports','upi_settlements','upi_refunds','upi_events','upi_attempts','shift_closes','inventory_documents','purchase_orders','sale_returns','cash_sales','stock_movements',
-        'branch_catalog','catalog_barcodes','activation_codes','merchant_audit','registers','entitlements','membership_sessions','memberships','branches']) {
+      for (const table of ['subscription_events','subscription_payments','subscription_invoices','subscriptions','merchant_exports','upi_settlements','upi_refunds','upi_events','upi_attempts','shift_closes','stock_transfer_receipts','stock_transfers','inventory_documents','purchase_orders','sale_returns','cash_sales','stock_movements',
+        'branch_catalog','catalog_barcodes','activation_codes','merchant_audit','registers','entitlements','membership_sessions','branch_assignments','memberships','branches']) {
         await db.query(`DELETE FROM ${table} WHERE merchant_id = $1`, [merchant]);
       }
       await db.query('DELETE FROM merchants WHERE id = $1', [merchant]);
