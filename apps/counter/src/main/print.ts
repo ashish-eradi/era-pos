@@ -1,5 +1,5 @@
 import { sendThermal } from './thermal';
-import { saleTotals } from '@era/contracts';
+import { saleTotals,returnTenderLabel } from '@era/contracts';
 import { BrowserWindow } from 'electron';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -34,7 +34,7 @@ export async function printReturn(receipt: ReturnReceipt): Promise<void> {
     <p>${escape(receipt.reason)}</p><ul>${rows}</ul>
     ${replacement ? `<p>Replacement ${escape(replacement.product)} × ${replacement.quantity} · ${money(saleTotals([replacement],0).total)}</p>` : ''}
     <p>Total credit ${money(receipt.creditMinor)}</p>
-    <strong>${difference < 0 ? 'Refund' : difference > 0 ? 'Collected' : 'Even exchange'} ${money(Math.abs(difference))} · ${receipt.tender}</strong></html>`);
+    <strong>${difference < 0 ? 'Refund' : difference > 0 ? 'Collected' : 'Even exchange'} ${money(Math.abs(difference))} · ${returnTenderLabel(receipt)}</strong></html>`);
 }
 
 async function printDocument(html: string, drawer=false) {

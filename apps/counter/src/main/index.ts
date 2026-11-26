@@ -1,12 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { StorageStatus } from '../bridge';
 import { backupCounter, maintenanceReady, recoverReceipts, recoveredReceipt, recoveryHistory } from './recovery';
 import { openCounterDatabase } from './database';
+import { CashierSession } from './cashier-access';
 import { activate, pairing } from './pairing';
 import { cachedCatalog, refreshCatalog } from './catalog';
-import { cashState, clearRejected, closeShift, commitCash, parkSale, resumeSale, receiptToPrint, startShift, syncCash } from './cash';
+import { cashState, clearRejected, closeShift, commitCash, parkSale, resumeSale, receiptToPrint, sendReceipt, startShift, syncCash } from './cash';
 import { printReceipt, printReturn } from './print';
 import { counterReturn, localReturns } from './returns';
 import type { ReturnRequest } from '@era/contracts';
@@ -56,7 +57,7 @@ async function start(): Promise<void> {
   });
   ipcMain.handle('counter:activate', (event, code: string) => {
     if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Activation is restricted to the counter window');
-    return activate(storage, code).then((identity) => { heartbeat(); return identity; });
+    return activate(storage, code).then((identity) => { access.restore(); window.webContents.send('counter:access',access.status()); void access.refresh().catch(()=>undefined); heartbeat(); return identity; });
   });
   ipcMain.handle('counter:catalog', (event) => {
     if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Catalog is restricted to the counter window');
@@ -66,7 +67,48 @@ async function start(): Promise<void> {
     if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Catalog is restricted to the counter window');
     return refreshCatalog(storage);
   });
-  function counterOnly(event: IpcMainInvokeEvent) {
+  let customerWindow:BrowserWindow|undefined;
+  let customerSale:import('../bridge').CustomerSale|null=null;
+  function updateDisplay(sale:typeof customerSale) {
+    customerSale=sale;
+    if (customerWindow && !customerWindow.isDestroyed()) customerWindow.webContents.send('display:sale',sale);
+  }
+  ipcMain.on('display:ready',event=>{
+    if (customerWindow && event.senderFrame===customerWindow.webContents.mainFrame) updateDisplay(customerSale);
+  });
+  ipcMain.on('counter:update-display',(event,sale:typeof customerSale)=>{
+    if (event.senderFrame===window.webContents.mainFrame && access.status().active) updateDisplay(sale);
+  });
+  ipcMain.handle('counter:open-display',async event=>{
+    counterOnly(event);
+    if (customerWindow) {customerWindow.show();return;}
+    const current=screen.getDisplayMatching(window.getBounds());
+    const target=screen.getAllDisplays().find(display=>display.id!==current.id);
+    customerWindow=new BrowserWindow({title:'Customer display',width:800,height:600,
+      ...(target && {x:target.bounds.x,y:target.bounds.y,fullscreen:true}),autoHideMenuBar:true,
+      webPreferences:{preload:join(__dirname,'../preload/customer.js'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+    customerWindow.on('closed',()=>{customerWindow=undefined;});
+    customerWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+    customerWindow.webContents.on('will-navigate',event=>event.preventDefault());
+    await customerWindow.loadFile(join(appPath,'dist/renderer/index.html'),{hash:'customer'});
+  });
+  window.on('closed',()=>customerWindow?.close());
+  const access=new CashierSession(storage,value=>{if (!value.active) updateDisplay(null); if (!window.isDestroyed()) window.webContents.send('counter:access',value);});
+  const expiry=setInterval(()=>access.expire(),1000);
+  const staffRefresh=setInterval(()=>{if (pairing(storage)) void access.refresh().catch(()=>undefined);},60000);
+  if (pairing(storage)) void access.refresh().catch(()=>undefined);
+  window.on('closed',()=>{clearInterval(expiry);clearInterval(staffRefresh);});
+  window.webContents.on('before-input-event',()=>access.activity());
+  ipcMain.on('counter:activity',event=>{if (event.senderFrame===window.webContents.mainFrame) access.activity();});
+  ipcMain.handle('counter:cashier-access',event=>{windowOnly(event);return access.status();});
+  ipcMain.handle('counter:staff-refresh',event=>{windowOnly(event);return access.refresh();});
+  ipcMain.handle('counter:unlock',(event,id:string,pin:string)=>{windowOnly(event);return access.unlock(id,pin);});
+  ipcMain.handle('counter:lock',event=>{windowOnly(event);access.lock();});
+  function counterOnly(event:IpcMainInvokeEvent) {
+    windowOnly(event);
+    return access.require();
+  }
+  function windowOnly(event: IpcMainInvokeEvent) {
     if (event.senderFrame !== window.webContents.mainFrame) throw new Error('Checkout is restricted to the counter window');
   }
   let backingUp = false;
@@ -110,9 +152,12 @@ async function start(): Promise<void> {
     if (syncing) throw new Error('Wait for the current sync attempt to finish');
     return clearRejected(storage, id);
   });
-  ipcMain.handle('counter:open-shift', (event, amount: number) => { counterOnly(event); return startShift(storage, amount); });
-  ipcMain.handle('counter:close-shift', (event, amount: number) => { counterOnly(event); return closeShift(storage, amount); });
-  ipcMain.handle('counter:cash-sale', (event, input: CashInput) => { counterOnly(event); return commitCash(storage, input); });
+  ipcMain.handle('counter:open-shift', (event, amount: number) => { counterOnly(event); return startShift(storage, amount,undefined,access.require().id); });
+  ipcMain.handle('counter:close-shift', (event, amount: number) => { counterOnly(event);
+    const result = closeShift(storage, amount, access.require().id);
+    access.lock();
+    return { ...result, state: cashState(storage) }; });
+  ipcMain.handle('counter:cash-sale', (event, input: CashInput) => { counterOnly(event); return commitCash(storage, input,access.require()); });
   ipcMain.handle('counter:upi', (event, input?: CashInput) => { counterOnly(event); return upi(storage, input); });
   let syncing: ReturnType<typeof syncCash> | undefined;
   ipcMain.handle('counter:sync-cash', async (event,id?: string) => {
@@ -135,10 +180,13 @@ async function start(): Promise<void> {
     if (receipt?.status !== 'complete') throw new Error('Completed return not found');
     return printReturn(receipt);
   });
+  ipcMain.handle('counter:send-receipt',(event,id:string,channel:'sms'|'email',recipient:string)=>{
+    counterOnly(event);return sendReceipt(storage,id,channel,recipient);
+  });
   ipcMain.handle('counter:print-receipt', (event, id: string,firstPrint?:boolean) => {
     counterOnly(event);
     const sale=receiptToPrint(storage,id);
-    const drawer=firstPrint===true && sale.payload.tender!=='upi' && !!process.env.ERA_PRINTER_HOST &&
+    const drawer=firstPrint===true && (sale.payload.tender!=='upi' || !!sale.payload.cashPortionMinor) && !!process.env.ERA_PRINTER_HOST &&
       process.env.ERA_PRINTER_DRAWER==='1' && !!storage.prepare("INSERT OR IGNORE INTO register_settings VALUES (?, '1')").run('drawer-'+id).changes;
     return printReceipt(sale,drawer);
   });

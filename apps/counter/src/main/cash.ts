@@ -73,12 +73,12 @@ export function cashState(database: DatabaseSync): CashState {
   };
 }
 
-export function startShift(database: DatabaseSync, amount: number, shiftId: string = randomUUID()): CashState {
+export function startShift(database: DatabaseSync, amount: number, shiftId: string = randomUUID(), cashierId?:string): CashState {
   const identity = register(database);
   if (!cashAmount(amount)) throw new Error('Enter an opening cash amount in minor units');
   if (openShift(database, identity.registerId)) throw new Error('A shift is already open');
-  database.prepare('INSERT INTO cash_shifts (id, register_id, opened_at, float_minor) VALUES (?, ?, ?, ?)')
-    .run(shiftId, identity.registerId, new Date().toISOString(), amount);
+  database.prepare('INSERT INTO cash_shifts (id, register_id, opened_at, float_minor,opened_by_cashier) VALUES (?, ?, ?, ?, ?)')
+    .run(shiftId, identity.registerId, new Date().toISOString(), amount,cashierId ?? null);
   return cashState(database);
 }
 
@@ -114,19 +114,20 @@ export function clearRejected(database: DatabaseSync, id: string) {
   return cashState(database);
 }
 
-export function closeShift(database: DatabaseSync, amount: number) {
+export function closeShift(database: DatabaseSync, amount: number,cashierId?:string) {
   if (savedUpi(database)) throw new Error('Resolve the UPI attempt before closing this shift');
   if (!cashAmount(amount)) throw new Error('Enter the counted cash in minor units');
   return atomic(database, () => {
     const current = openShift(database, register(database).registerId);
     if (!current) throw new Error('Open a shift first');
     const sales = database.prepare(`
-      SELECT COALESCE(sum(total_minor), 0) AS total FROM cash_receipts
-      WHERE shift_id = ? AND COALESCE(json_extract(envelope, '$.payload.tender'), 'cash') = 'cash'
+      SELECT COALESCE(sum(CASE WHEN json_extract(envelope,'$.payload.tender')='upi'
+        THEN coalesce(json_extract(envelope,'$.payload.cashPortionMinor'),0) ELSE total_minor END),0) AS total FROM cash_receipts
+      WHERE shift_id=?
     `).get(current.id);
     const expected = current.float_minor + Number(sales?.total) + cashFromReturns(database,current.id);
-    database.prepare('UPDATE cash_shifts SET closed_at = ?, counted_minor = ?, expected_minor = ? WHERE id = ?')
-      .run(new Date().toISOString(), amount, expected, current.id);
+    database.prepare('UPDATE cash_shifts SET closed_at = ?, counted_minor = ?, expected_minor = ?,closed_by_cashier=? WHERE id = ?')
+      .run(new Date().toISOString(), amount, expected,cashierId ?? null, current.id);
     return { expected, variance: amount - expected };
   });
 }
@@ -139,7 +140,7 @@ async function post(database: DatabaseSync, path: string, body: object) {
   });
 }
 
-export async function commitCash(database: DatabaseSync, input: CashInput): Promise<string> {
+export async function commitCash(database: DatabaseSync, input: CashInput,cashier?:import('../bridge').Cashier): Promise<string> {
   if (!input || !operationPattern.test(input.operationId) || !Array.isArray(input.lines) ||
     !cashAmount(input.discountMinor) || !cashAmount(input.tenderedMinor)) throw new Error('Invalid cash sale');
   const prior = receipt(database, input.operationId);
@@ -182,16 +183,16 @@ export async function commitCash(database: DatabaseSync, input: CashInput): Prom
       if (invoiceNumber.length>16) throw new Error('Invoice series exhausted');
     }
     const payload: CashReceiptV1 = {
-      kind: 'cash_sale', shiftId: shift.id, currency: catalog.currency, lines,
+      cashier,kind: 'cash_sale', shiftId: shift.id, currency: catalog.currency, lines,
       brand:catalog.brand, invoiceNumber,buyer:invoiceNumber ? upi?.buyer ?? input.buyer : undefined,placeOfSupply:invoiceNumber ? upi?.placeOfSupply ?? input.placeOfSupply ?? catalog.receiptGstin?.slice(0,2) : undefined,
       merchantName: catalog.merchantName, receiptAddress: catalog.receiptAddress, receiptGstin: catalog.receiptGstin,
       discountMinor: input.discountMinor, tenderedMinor: input.tenderedMinor,
       ...(input.discountMinor && { approval: input.approval }),
-      ...(input.tender === 'upi' && { tender: 'upi' as const }),
+      ...(input.tender === 'upi' && { tender: 'upi' as const,cashPortionMinor:upi?.cashPortionMinor }),
     };
     if (!isCashReceiptV1(payload)) throw new Error('Check item quantities, discount and cash tendered');
     const {total} = saleTotals(lines,input.discountMinor);
-    if (input.tender === 'upi' && upi?.amountMinor !== total) throw new Error('UPI amount does not match the cart');
+    if (input.tender === 'upi' && upi?.amountMinor !== total-(upi?.cashPortionMinor ?? 0)) throw new Error('UPI amount does not match the cart');
     const envelope: Envelope = {
       version: 1, merchantId: identity.merchantId, branchId: identity.branchId, registerId: identity.registerId,
       operationId: input.operationId, occurredAt: new Date().toISOString(), payload,
@@ -238,6 +239,14 @@ export async function syncCash(database: DatabaseSync, id?: string): Promise<Cas
   return cashState(database);
 }
 
+export async function sendReceipt(db:DatabaseSync,id:string,channel:'sms'|'email',recipient:string) {
+  receiptToPrint(db,id);
+  const response=await post(db,'/v1/devices/send-receipt',{deviceId:register(db).deviceId,id,channel,recipient});
+  if (!response.ok) {
+    const body=await response.json().catch(()=>({}));
+    throw new Error(body.message || 'Could not send receipt');
+  }
+}
 export function receiptToPrint(database: DatabaseSync, id: string): Envelope {
   const operation = receipt(database, id);
   if (!operation) throw new Error('Receipt was not found on this register');

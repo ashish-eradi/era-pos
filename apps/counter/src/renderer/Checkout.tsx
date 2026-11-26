@@ -1,3 +1,4 @@
+import { SendReceipt } from './SendReceipt';
 import { SaleReceipt } from '../SaleReceipt';
 import { Returns } from './Returns';
 import { QRCodeSVG } from 'qrcode.react';
@@ -24,6 +25,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [cashPart,setCashPart]=useState('');
   const [tender, setTender] = useState('');
   const [reduction, setReduction] = useState('');
   const [discount, setDiscount] = useState(false);
@@ -49,16 +51,16 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const latestReceipt = state?.receipts.find(sale => sale.operationId === lastReceipt);
   const pending = state?.pending ?? 0;
   useEffect(() => window.counter.onShiftChanged(() => {
-    setCart({}); setBuyerDetails(blankBuyer); setDestination(''); setDiscount(false); showClose(false); setOperationId(crypto.randomUUID());
+    setCart({}); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setDiscount(false); showClose(false); setOperationId(crypto.randomUUID());
     void window.counter.cashState().then(setState).catch(() => setError('Unable to refresh shift'));
   }), []);
   useEffect(() => {
-    if (!pending) return;
+    if (!pending || page==='Locked') return;
     const reconnect = () => { void window.counter.syncCash().catch(() => window.counter.cashState()).then(setState).catch(() => undefined); };
     const timer = window.setInterval(reconnect, 15_000);
     window.addEventListener('online', reconnect);
     return () => { window.clearInterval(timer); window.removeEventListener('online', reconnect); };
-  }, [pending]);
+  }, [pending,page]);
 
   const currency = catalog?.currency ?? state?.receipts[0]?.payload.currency;
   const money = (amount: number, code = currency) => code
@@ -70,7 +72,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const pendingSales = state?.queue.filter(entry=>entry.status === 'pending').length ?? 0;
   useEffect(() => {
     const shortcuts = (event: KeyboardEvent) => {
-      if (busy || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+      if (page === 'Locked' || busy || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
       const tabs = ['Sell','Receipts','Returns','Register'];
       const tab = ['F1','F2','F3','F4'].indexOf(event.key);
       if (tab >= 0) { event.preventDefault(); navigate(tabs[tab]); return; }
@@ -82,7 +84,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       }
       if (event.key === 'F10' && state?.shift && !payment) {event.preventDefault(); showClose(true);}
       if (event.key === 'Escape' && !payment && !close && Object.values(cart).some(Boolean) && window.confirm('Clear the current cart?')) {
-        setCart({}); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setDiscount(false); setOperationId(crypto.randomUUID());
+        setCart({}); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setDiscount(false); setOperationId(crypto.randomUUID());
       }
     };
     window.addEventListener('keydown',shortcuts);
@@ -90,7 +92,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   },[page,navigate,busy,state?.shift,payment,close,cart]);
   const [seconds, setSeconds] = useState(10);
   useEffect(() => {
-    if (payment?.status !== 'pending' || !payment.shortUrl || busy) return;
+    if (page==='Locked' || payment?.status !== 'pending' || !payment.shortUrl || busy) return;
     let remaining = 10;
     setSeconds(remaining);
     const timer = window.setInterval(() => {
@@ -103,7 +105,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         .finally(() => setBusy(false));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [payment, busy]);
+  }, [payment, busy,page]);
   useEffect(() => {
     if (page !== "Sell" || !state?.shift || busy || close || payment || !catalog) return;
     let buffer = '';
@@ -133,6 +135,14 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const lines = items.filter(({ sku }) => cart[sku]).map(item=>catalogLine(item,cart[item.sku],catalog!));
   const discountMinor = discount ? Math.round(Number(reduction)*100) : 0;
   const totals = saleTotals(lines,Number.isSafeInteger(discountMinor) ? discountMinor : 0);
+  useEffect(()=>{
+    const completed=!!latestReceipt && !lines.length;
+    const rows=lines.map((line,i)=>({product:line.product,quantity:line.quantity,amount:totals.breakdown[i].payable}));
+    const final=completed ? saleTotals(latestReceipt.payload.lines,latestReceipt.payload.discountMinor) : undefined;
+    window.counter.updateCustomerDisplay(page==='Sell' && currency && (completed || rows.length) ? {
+      currency,lines:rows,total:final?.total ?? totals.total,completed
+    }:null);
+  },[page,currency,latestReceipt,lines,totals]);
   const search = query.trim().toLowerCase();
   const categoryOf = (item: CatalogSnapshotV1['items'][number]) => item.category?.trim() || 'Uncategorized';
   const categories = [...new Set(items.map(categoryOf))].sort((a, b) => a.localeCompare(b));
@@ -164,9 +174,9 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       if (!closing) setState(await window.counter.openShift(amount));
       else {
         const result = await window.counter.closeShift(amount);
-        setState(await window.counter.cashState());
+        setState(result.state);
         showClose(false);
-        setCart({}); setBuyerDetails(blankBuyer); setDestination('');
+        setCart({}); setCashPart(''); setBuyerDetails(blankBuyer); setDestination('');
         setOperationId(crypto.randomUUID());
         setNotice(`Shift closed. Expected ${money(result.expected)}. Variance ${money(result.variance)}.`);
       }
@@ -180,7 +190,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       });
       setTender(''); setReduction('');
       setLastReceipt(id);
-      setCart({}); setBuyerDetails(blankBuyer); setDestination('');
+      setCart({}); setCashPart(''); setBuyerDetails(blankBuyer); setDestination('');
       setQuery('');
       setDiscount(false);
       setFallback(false);
@@ -190,7 +200,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
       await reloadCatalog();
       const saved = next.receipts.find((item) => item.operationId === id);
       const change = saved ? saved.payload.tenderedMinor - saleTotals(saved.payload.lines,saved.payload.discountMinor).total : 0;
-      setNotice(tender ? 'UPI sale saved.' : `Sale saved. Change ${money(change)}.`);
+      setNotice(tender ? (saved?.payload.cashPortionMinor ? 'Split sale saved.' : 'UPI sale saved.') : `Sale saved. Change ${money(change)}.`);
       void window.counter.syncCash().then(setState).catch(() => undefined);
   }
 
@@ -202,7 +212,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
 
   function checkUpi(create: boolean) {
     if (!state?.shift || !catalog) return;
-    const input = { operationId, placeOfSupply,buyer, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor: 0, tenderedMinor: 0 };
+    const input = { operationId, cashPortionMinor:Math.round(Number(cashPart)*100), placeOfSupply,buyer, shiftId: state.shift.id, catalogVersion: catalog.version, lines, discountMinor: 0, tenderedMinor: 0 };
     void run(async () => {
       try { await window.counter.upi(create ? input : undefined); }
       finally { setState(await window.counter.cashState()); }
@@ -262,7 +272,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
             <legend>Cart and payment</legend>
             <button type="button" disabled={!!payment || discount} onClick={() => void run(async () => {
               setState(await window.counter.parkSale(operationId,lines));
-              setCart({}); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setQuery(''); setLastReceipt('');
+              setCart({}); setCashPart(''); setBuyerDetails(blankBuyer); setDestination(''); setTender(''); setReduction(''); setQuery(''); setLastReceipt('');
               setOperationId(crypto.randomUUID()); setNotice('Sale parked on this register.');
             })}>Park sale</button>
             <ul>{lines.map((line,i) => <li key={line.sku}><b>{line.product}</b><small>{line.sku} · {money(line.unitMinor)} each · {money(totals.breakdown[i].payable)} due</small>
@@ -291,16 +301,16 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
                 <input disabled={!!payment} maxLength={key==='name'?120:key==='gstin'?15:400} value={buyer?.[key] ?? ''} onChange={e=>setBuyerDetails({...buyerDetails,[key]:key==='gstin'?e.target.value.toUpperCase():e.target.value})}/></label>)}</details>}
             <dl className="totals-list"><dt>Before tax and discount</dt><dd>{money(totals.total-totals.tax+discountMinor)}</dd><dt>Tax</dt><dd>{money(totals.tax)}</dd><dt>Discount</dt><dd>{money(discount ? Math.round(Number(reduction)*100) : 0)}</dd></dl>
             <p className="total">Amount due <strong>{money(totals.total)}</strong></p>
-            {catalog?.currency === 'INR' && !payment && !discount && <button type="button" onClick={() => checkUpi(true)}>Start UPI payment</button>}
+            {catalog?.currency === 'INR' && !payment && !discount && <><label>Cash portion for split payment ({currency})<input name="cashPart" type="number" step=".01" min="0" placeholder="0" value={cashPart} onChange={e=>setCashPart(e.target.value)}/></label><button type="button" onClick={() => checkUpi(true)}>{Number(cashPart)>0?'Start split payment':'Start UPI payment'}</button></>}
             {payment && <>
-              <p>UPI {payment.status} · {money(payment.amountMinor)}</p>
+              <p>UPI {payment.status} · {money(payment.amountMinor)}{payment.cashPortionMinor ? ` · Cash to collect ${money(payment.cashPortionMinor)}` : ''}</p>
               {payment.shortUrl && payment.status === 'pending' && <>
                 <QRCodeSVG value={payment.shortUrl} size={192} marginSize={4} title="Scan to pay by UPI" />
                 <p>{busy ? 'Checking payment…' : `Next payment check in ${seconds}s`}</p>
               </>}
               {payment.shortUrl && payment.status === 'pending' && <label>Customer payment link<input value={payment.shortUrl} readOnly onFocus={(event) => event.target.select()} /></label>}
               {payment.status === 'pending' && <button type="button" onClick={() => checkUpi(!payment.shortUrl)}>Check UPI status</button>}
-              {payment.status === 'paid' ? <button type="button" onClick={() => void run(() => complete(payment.amountMinor, 0, undefined, 'upi'))}>Record UPI sale</button> :
+              {payment.status === 'paid' ? <button type="button" onClick={() => void run(() => complete(payment.amountMinor+(payment.cashPortionMinor ?? 0), 0, undefined, 'upi'))}>{payment.cashPortionMinor ? 'Confirm cash collected and record split sale':'Record UPI sale'}</button> :
                 <label><input type="checkbox" checked={fallback} onChange={(event) => setFallback(event.target.checked)} /> Accept cash instead. A delayed UPI payment may require a refund.</label>}
             </>}
             {(!payment || (fallback && payment.status !== 'paid')) && <>
@@ -326,7 +336,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     {notice && <p className="checkout-toast" role="status">{notice}</p>}
     {error && <p role="alert">{error}</p>}
     {state && <>
-      <div className="panel" hidden={page !== "Register"}><h3>Sync queue</h3><p>{state.pending} pending · {state.rejected} need review</p>
+      <div className="panel" hidden={page !== "Register"}><button onClick={()=>void run(()=>window.counter.openCustomerDisplay())}>Open customer display</button><h3>Sync queue</h3><p>{state.pending} pending · {state.rejected} need review</p>
       <ul>{state.queue.map(entry => <li key={entry.id}>
         {entry.id} · {entry.status} · {entry.attempts} sync attempts {entry.attemptedAt && new Date(entry.attemptedAt).toLocaleString()} {entry.error}
         <button disabled={busy} onClick={() => void run(async () => {
@@ -340,7 +350,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         Sync sales
       </button>
       </div>
-      {page === 'Sell' && lastReceipt && <>{latestReceipt && <SaleReceipt sale={latestReceipt}/>}<button disabled={busy} onClick={() => void run(() => window.counter.printReceipt(lastReceipt,true))}>Print receipt</button><button onClick={() => {setLastReceipt('');setNotice('');searchInput.current?.focus();}}>Next sale</button></>}
+      {page === 'Sell' && lastReceipt && <>{latestReceipt && <><SaleReceipt sale={latestReceipt}/><SendReceipt key={lastReceipt} id={lastReceipt}/></>}<button disabled={busy} onClick={() => void run(() => window.counter.printReceipt(lastReceipt,true))}>Print receipt</button><button onClick={() => {setLastReceipt('');setNotice('');searchInput.current?.focus();}}>Next sale</button></>}
       <div className="panel" hidden={page !== 'Receipts'}>
       {!state.receipts.length && <p>No saved receipts yet.</p>}
       {state.receipts.length > 0 && <><h3>Recent receipts</h3><ul>{state.receipts.map((sale) => <li key={sale.operationId}>
@@ -350,7 +360,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         </button>
         {state.shift && <button onClick={() => {setReturnId(sale.operationId); navigate("Returns");}}>Start return</button>}
         <details><summary>Receipt details</summary>
-          <SaleReceipt sale={sale}/>
+          <SaleReceipt sale={sale}/><SendReceipt id={sale.operationId}/>
         </details>
       </li>)}</ul></>}
       <form onSubmit={(event) => {

@@ -54,8 +54,9 @@ export async function counterReturn(database: DatabaseSync, id: string, action: 
 export function cashFromReturns(database: DatabaseSync, shift: string) {
   const row = database.prepare(`
     SELECT count(*) FILTER (WHERE receipt IS NULL OR json_extract(receipt,'$.status') IN ('requested','pending_refund')) AS pending,
-      COALESCE(sum(json_extract(receipt,'$.differenceMinor')) FILTER (
-        WHERE json_extract(receipt,'$.status') = 'complete' AND json_extract(receipt,'$.tender') = 'cash'
+      COALESCE(sum(CASE WHEN json_extract(receipt,'$.tender')='cash' THEN json_extract(receipt,'$.differenceMinor')
+        ELSE -coalesce(json_extract(receipt,'$.cashRefundMinor'),0) END) FILTER (
+        WHERE json_extract(receipt,'$.status') = 'complete'
       ),0) AS total
     FROM local_returns WHERE shift_id = ?
   `).get(shift);

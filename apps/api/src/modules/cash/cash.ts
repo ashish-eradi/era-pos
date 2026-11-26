@@ -79,8 +79,8 @@ export class CashController {
     const saved = {
       shiftId: receipt.shiftId, currency: receipt.currency, lines, discountMinor: receipt.discountMinor,
       tenderedMinor: receipt.tenderedMinor, totalMinor: saleTotals(lines,receipt.discountMinor).total,
-      ...(receipt.tender && { tender: receipt.tender }),
-      buyer:receipt.buyer, brand:receipt.brand, invoiceNumber:receipt.invoiceNumber, placeOfSupply:receipt.placeOfSupply,
+      ...(receipt.tender && { tender: receipt.tender,cashPortionMinor:receipt.cashPortionMinor }),
+      cashier:receipt.cashier && {id:receipt.cashier.id,name:receipt.cashier.name},buyer:receipt.buyer, brand:receipt.brand, invoiceNumber:receipt.invoiceNumber, placeOfSupply:receipt.placeOfSupply,
       merchantName: receipt.merchantName, receiptAddress: receipt.receiptAddress, receiptGstin: receipt.receiptGstin,
     };
     const hash = digest(JSON.stringify([occurredAt, saved, receipt.approval]));
@@ -109,6 +109,8 @@ export class CashController {
         if ((await client.query("SELECT 1 FROM cash_sales WHERE merchant_id=$1 AND receipt->>'invoiceNumber'=$2",[merchant,receipt.invoiceNumber])).rowCount)
           return fail('operation_conflict');
       }
+      if (receipt.cashier && !(await client.query('SELECT 1 FROM memberships WHERE merchant_id=$1 AND id=$2',[merchant,receipt.cashier.id])).rowCount)
+        return fail('invalid_operation');
       const products = await client.query('SELECT sku FROM branch_catalog WHERE merchant_id = $1 AND branch_id = $2 AND sku = ANY($3)',
         [merchant, branch, lines.map(({ sku }) => sku)]);
       if (products.rowCount !== lines.length) return fail('invalid_operation');
@@ -116,7 +118,7 @@ export class CashController {
         const payment = await client.query(`
           SELECT 1 FROM upi_attempts WHERE merchant_id = $1 AND register_id = $2 AND operation_id = $3
             AND status = 'paid' AND amount_minor = $4
-        `, [...key, saved.totalMinor]);
+        `, [...key, saved.totalMinor-(receipt.cashPortionMinor ?? 0)]);
         if (!payment.rowCount) return fail('invalid_operation');
       }
       if (receipt.discountMinor) {

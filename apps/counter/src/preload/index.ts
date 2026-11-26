@@ -2,6 +2,19 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { CounterBridge } from '../bridge';
 
 const bridge: CounterBridge = {
+  sendReceipt:(id,channel,recipient)=>ipcRenderer.invoke('counter:send-receipt',id,channel,recipient),
+  openCustomerDisplay:()=>ipcRenderer.invoke('counter:open-display'),
+  updateCustomerDisplay:sale=>ipcRenderer.send('counter:update-display',sale),
+  cashierAccess:()=>ipcRenderer.invoke('counter:cashier-access'),
+  refreshStaff:()=>ipcRenderer.invoke('counter:staff-refresh'),
+  unlock:(id,pin)=>ipcRenderer.invoke('counter:unlock',id,pin),
+  lock:()=>ipcRenderer.invoke('counter:lock'),
+  activity:()=>ipcRenderer.send('counter:activity'),
+  onAccessChanged:listener=>{
+    const handle=(_:unknown,state:import('../bridge').CashierAccess)=>listener(state);
+    ipcRenderer.on('counter:access',handle);
+    return ()=>{ipcRenderer.removeListener('counter:access',handle);};
+  },
   onShiftChanged: listener => {
     ipcRenderer.on('counter:shift-changed',listener);
     return () => { ipcRenderer.removeListener('counter:shift-changed',listener); };

@@ -1,3 +1,4 @@
+import { returnTenderLabel } from '@era/contracts';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { ReturnReceipt, ReturnRequest } from '@era/contracts';
@@ -59,7 +60,7 @@ export function Returns({ open, initialId }: { open: boolean; initialId: string 
         <summary>{draft.lines.map(({ sku }) => sku).join(', ')} · {status ?? 'Unconfirmed request'}</summary>
         <p>Return ID {draft.id}</p>
         <p>{draft.reason}</p>
-        {receipt && <p>{difference < 0 ? 'Refund' : difference > 0 ? 'Collect' : 'Even exchange'} {amount} · {receipt.tender}</p>}
+        {receipt && <p>{difference < 0 ? 'Refund' : difference > 0 ? 'Collect' : 'Even exchange'} {amount} · {returnTenderLabel(receipt)}</p>}
         {status === 'requested' && <p>Ask the manager to approve this return in the merchant workspace.</p>}
         {(!status || status === 'requested' || status === 'pending_refund') && <>
           <button disabled={busy} onClick={() => void run(async () => setRows(await window.counter.changeReturn(draft.id,'get')))}>Check status</button>

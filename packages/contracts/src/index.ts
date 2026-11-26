@@ -8,6 +8,7 @@ export type { CashLineV1, CashReceiptV1 } from './cash';
 
 export { saleTotals, catalogLine, gstStates, gstComponents, validBuyer } from './gst';
 export type { ReceiptBrand, InvoiceBuyer } from './gst';
+export { returnTenderLabel } from './returns';
 export type CurrencyV1 = 'INR' | 'USD';
 
 export type CatalogSnapshotV1 = {

@@ -12,6 +12,7 @@ import { SupportTickets } from './SupportTickets';
 import { UpiPayments } from './UpiPayments';
 import { BranchShifts } from './BranchShifts';
 import { Overview } from './Overview';
+import { CashierPins } from './CashierPins';
 import { ReceiptSettings } from './ReceiptSettings';
 import { Signup } from './Signup';
 
@@ -124,6 +125,7 @@ export function MerchantHome() {
           {['owner', 'manager'].includes(session.role) && section === 'Returns' && <ReturnApprovals path={`${path}/branches/${branch.id}/returns`} token={session.token} />}
           {section === 'Catalog' && session.role === 'owner' && <CatalogImport path={`${path}/branches/${branch.id}/catalog`} token={session.token} />}
           {section === 'Team and registers' && session.role === 'owner' && <>
+            <CashierPins path={`${path}/branches/${branch.id}/cashiers`} token={session.token}/>
             <Action title="Invite branch staff" run={async (form) => {
               const { code } = await request<{ code: string }>(`${path}/branches/${branch.id}/staff-invitations`, session.token, values(form));
               return `Share privately. Code expires in 24 hours: ${code}`;

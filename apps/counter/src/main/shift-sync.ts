@@ -10,6 +10,7 @@ export async function syncShiftCloses(database: DatabaseSync, deviceId: string, 
   for (const row of rows) {
     const response = await post('/v1/devices/shift-close', {
       deviceId, id: row.id, openedAt: row.opened_at, closedAt: row.closed_at,
+      openedBy:row.opened_by_cashier ?? undefined,closedBy:row.closed_by_cashier ?? undefined,
       floatMinor: row.float_minor, countedMinor: row.counted_minor, receiptCount: row.receipt_count,
     });
     if (!response.ok) throw new Error('Shift close sync unavailable. The close remains queued');

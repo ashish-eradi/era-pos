@@ -119,6 +119,14 @@ Open an incident for a stale register and assign it to yourself. In the merchant
 - Keep SQLite and its migrations in the counter main process. The React renderer talks to it through a typed preload bridge.
 - Keep merchant and platform routes in one React app. The API owns authorization. Share versioned payload schemas through `packages/contracts`.
 
+### Cashier shifts and customer receipts
+
+In **Team and registers**, the owner sets a six-digit PIN for each cashier. On the paired counter, choose **Refresh staff** while online. The register caches the branch roster for offline unlock. Closing a shift or leaving the counter idle for five minutes locks it. Use **Lock counter** for a handover.
+
+For a split sale, enter the cash portion and start the UPI payment for the balance. After provider confirmation, collect the cash and record the sale. Reopening the register restores the pending payment. Returns refund the available cash portion first and route the remaining amount through the UPI provider.
+
+Open **Register → Open customer display** for the customer screen. From a synced receipt, the cashier can send a copy at the customer's request. For email, configure `ERA_RESEND_KEY` and `ERA_RECEIPT_FROM` (or `ERA_SIGNUP_FROM`) on the API. For SMS, configure `ERA_TWILIO_ACCOUNT`, `ERA_TWILIO_TOKEN` and `ERA_SMS_FROM`. Use an international phone number including the country code.
+
 ### Receipt returns and exchanges
 
 Sync the original sale, open a shift, and request a return on the counter using the receipt ID and SKU. An owner or assigned manager approves it in the merchant workspace. The counter checks the result and can print the completed return. For a cash difference, the cashier handles cash on completion. If a UPI refund response is delayed, use **Check provider refund** on the original request. A shift with an unresolved return stays open. Download the catalog after syncing to pick up current stock.

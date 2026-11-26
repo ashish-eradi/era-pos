@@ -54,10 +54,13 @@ export async function upi(database: DatabaseSync, input?: CashInput): Promise<Up
       return { sku, quantity };
     });
     if (gstInvoice && !validBuyer(input.buyer,amount)) throw new Error('Enter buyer name and address before starting payment');
+    const cashPart=input.cashPortionMinor ?? 0;
+    if (!cashAmount(cashPart) || cashPart>=amount) throw new Error('The cash portion must be less than the amount due');
+    amount-=cashPart;
     if (!amount || !cashAmount(amount)) throw new Error('Enter a positive UPI total');
     if (checkout && checkout.operationId !== input.operationId) throw new Error('Finish the existing UPI attempt first');
     checkout ??= { registerId: scope.registerId, operationId: input.operationId, shiftId: input.shiftId,
-      lines, buyer:input.buyer,placeOfSupply:input.placeOfSupply, amountMinor: amount, status: 'pending', shortUrl: null, catalogVersion: catalog.version };
+      lines, cashPortionMinor:cashPart || undefined,buyer:input.buyer,placeOfSupply:input.placeOfSupply, amountMinor: amount, status: 'pending', shortUrl: null, catalogVersion: catalog.version };
     persist(database, checkout);
   }
   if (!checkout) throw new Error('Start a UPI payment first');
