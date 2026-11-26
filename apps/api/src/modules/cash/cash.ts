@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Headers, Inject, NotFoundException, Param, Post, Query,
 } from '@nestjs/common';
-import { cashAmount, saleTotals, isCashReceiptV1 } from '@era/contracts';
+import { discountQuote,cashAmount, saleTotals, isCashReceiptV1 } from '@era/contracts';
 import type { SyncAcknowledgementV1 } from '@era/contracts';
 import type { Pool } from 'pg';
 import { shiftClosed } from './closes';
@@ -74,14 +74,15 @@ export class CashController {
       !Number.isFinite(Date.parse(occurredAt)) || new Date(occurredAt).toISOString() !== occurredAt || !isCashReceiptV1(receipt)) {
       return Promise.resolve(fail('invalid_operation'));
     }
-    const lines = receipt.lines.map(({ sku, product, quantity, unitMinor, unit, allowDecimal, mrpMinor, gst, modifiers }) => ({ sku, product, quantity, unitMinor,
-      ...(unit && {unit}), ...(allowDecimal && {allowDecimal}),
+    const lines = receipt.lines.map(({ sku, product, quantity, unitMinor, offerMinor, unit, allowDecimal, mrpMinor, gst, modifiers }) => ({ sku, product, quantity, unitMinor,
+      ...(offerMinor && {offerMinor}), ...(unit && {unit}), ...(allowDecimal && {allowDecimal}),
       ...(mrpMinor!==undefined && {mrpMinor}),
       ...(modifiers?.length && {modifiers:modifiers.map(({name,priceMinor})=>({name,priceMinor}))}),
       ...(gst && {gst:{rate:gst.rate,inclusive:gst.inclusive,hsn:gst.hsn}}) }));
     const saved = {
       shiftId: receipt.shiftId, currency: receipt.currency, lines, discountMinor: receipt.discountMinor,
       tenderedMinor: receipt.tenderedMinor, totalMinor: saleTotals(lines,receipt.discountMinor).total,
+      ...(receipt.policyId && {policyId:receipt.policyId,offerCode:receipt.offerCode,pricedAt:receipt.pricedAt}),
       ...(receipt.tender && { tender: receipt.tender,cashPortionMinor:receipt.cashPortionMinor }),
       customerCode:receipt.customerCode,
       cashier:receipt.cashier && {id:receipt.cashier.id,name:receipt.cashier.name},buyer:receipt.buyer, brand:receipt.brand, invoiceNumber:receipt.invoiceNumber, placeOfSupply:receipt.placeOfSupply,
@@ -127,7 +128,18 @@ export class CashController {
         `, [...key, saved.totalMinor-(receipt.cashPortionMinor ?? 0)]);
         if (!payment.rowCount) return fail('invalid_operation');
       }
-      if (receipt.discountMinor) {
+      if (receipt.policyId) {
+        const at=receipt.pricedAt ?? occurredAt;
+        if (at>occurredAt) return fail('invalid_operation');
+        const policy=await client.query(`SELECT p.policy,p.id FROM register_discount_policies d
+          JOIN discount_policies p ON (p.merchant_id,p.id)=(d.merchant_id,d.policy_id)
+          WHERE d.merchant_id=$1 AND d.register_id=$2 AND d.downloaded_at<=$3
+          ORDER BY p.published_at DESC LIMIT 1`,[merchant,register,at]);
+        if (policy.rows[0]?.id!==receipt.policyId) return fail('invalid_operation');
+        const quote=discountQuote(lines,policy.rows[0].policy,receipt.offerCode,at);
+        if (!quote.eligible || (receipt.offerCode ? receipt.discountMinor!==quote.offerMinor : receipt.discountMinor>quote.limit) ||
+          lines.some(line=>(line.offerMinor ?? 0)!==(line.sku===quote.sku ? quote.offerMinor : 0))) return fail('invalid_operation');
+      } else if (receipt.discountMinor) {
         const approval = await client.query(`
           SELECT 1 FROM cash_discount_approvals
           WHERE merchant_id = $1 AND register_id = $2 AND operation_id = $3 AND digest = $4 AND amount_minor = $5

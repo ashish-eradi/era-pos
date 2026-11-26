@@ -4,7 +4,7 @@ import { Returns } from './Returns';
 import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { catalogLine, saleTotals, gstStates } from '@era/contracts';
+import { discountQuote,pricedLines,catalogLine, saleTotals, gstStates } from '@era/contracts';
 import type { CatalogSnapshotV1 } from '@era/contracts';
 import type { CashState } from '../bridge';
 
@@ -34,6 +34,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   const [cashPart,setCashPart]=useState('');
   const [tender, setTender] = useState('');
   const [reduction, setReduction] = useState('');
+  const [coupon,setCoupon]=useState('');
   const [discount, setDiscount] = useState(false);
   const [fallback, setFallback] = useState(false);
   const [close, showClose] = useState(false);
@@ -139,13 +140,18 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
     window.addEventListener('keydown', scan, true);
     return () => window.removeEventListener('keydown', scan, true);
   }, [page, catalog, state?.shift, busy, close, payment]);
-  useEffect(() => { if (!Object.values(cart).some(Boolean)) {setCustomer('');searchCustomer('');setMethod('cash');} },[cart]);
-  const lines = items.filter(({ sku }) => cart[sku]).map(item => {
+  useEffect(() => { if (!Object.values(cart).some(Boolean)) {setCustomer('');searchCustomer('');setMethod('cash');setCoupon('');setReduction('');setDiscount(false);} },[cart]);
+  const basket = items.filter(({ sku }) => cart[sku]).map(item => {
     const selected = (item.modifiers ?? []).filter(m=>options[item.sku]?.includes(m.name)).map(m=>m.name);
     return catalogLine(item,cart[item.sku],catalog!,selected);
   });
+  const offerCode = payment ? payment.offerCode : discount && coupon.trim() ? coupon.trim().toUpperCase() : undefined;
+  const quote = discountQuote(basket,catalog?.discountPolicy ?? undefined,offerCode,payment?.pricedAt ?? new Date().toISOString());
+  const lines = pricedLines(basket,quote);
   const checkoutLines = lines.map(({sku,quantity,modifiers})=>({sku,quantity,modifierNames:modifiers?.map(m=>m.name)}));
-  const discountMinor = discount ? Math.round(Number(reduction)*100) : 0;
+  const discountMinor = payment?.discountMinor ?? (offerCode ? quote.offerMinor : discount ? Math.round(Number(reduction)*100) : 0);
+  const needsApproval = !offerCode && discountMinor>quote.limit;
+  const invalidOffer = !!offerCode && (!quote.eligible || !quote.offerMinor);
   const totals = saleTotals(lines,Number.isSafeInteger(discountMinor) ? discountMinor : 0);
   useEffect(()=>{
     const completed=!!latestReceipt && !lines.length;
@@ -198,7 +204,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   async function complete(tenderedMinor: number, discountMinor: number, approval?: string, tender?: 'upi') {
       if (!state?.shift || !catalog) return;
       const id = await window.counter.cashSale({
-        operationId, shiftId: state.shift.id, catalogVersion: catalog.version, lines:checkoutLines, discountMinor, tenderedMinor, approval, tender, fallback,placeOfSupply,buyer,customerCode,
+        operationId, shiftId: state.shift.id, catalogVersion: catalog.version, lines:checkoutLines, discountMinor, offerCode,tenderedMinor, approval, tender, fallback,placeOfSupply,buyer,customerCode,
       });
       setTender(''); setReduction('');
       setLastReceipt(id);
@@ -219,12 +225,12 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   function sell(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    void run(() => complete(Math.round(Number(data.get('tendered')) * 100), Math.round(Number(data.get('discount') ?? 0) * 100), String(data.get('approval') ?? '').trim()));
+    void run(() => complete(Math.round(Number(data.get('tendered')) * 100), discountMinor, String(data.get('approval') ?? '').trim()));
   }
 
   function checkUpi(create: boolean) {
     if (!state?.shift || !catalog) return;
-    const input = { operationId, cashPortionMinor:Math.round(Number(cashPart)*100), placeOfSupply,buyer,customerCode, shiftId: state.shift.id, catalogVersion: catalog.version, lines:checkoutLines, discountMinor: 0, tenderedMinor: 0 };
+    const input = { operationId, cashPortionMinor:Math.round(Number(cashPart)*100), placeOfSupply,buyer,customerCode, shiftId: state.shift.id, catalogVersion: catalog.version, lines:checkoutLines, discountMinor,offerCode,tenderedMinor: 0 };
     void run(async () => {
       try { await window.counter.upi(create ? input : undefined); }
       finally { setState(await window.counter.cashState()); }
@@ -334,11 +340,16 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
             {lines.some(line=>line.gst) && <details open={totals.total>=5000000 || undefined}><summary>Buyer details{totals.total>=5000000 ? ' (required)' : ''}</summary>
               {(['name','address','gstin','deliveryAddress'] as const).map(key=><label key={key}>{{name:'Buyer name',address:'Billing address',gstin:'Buyer GSTIN (if registered)',deliveryAddress:'Delivery address (if different)'}[key]}
                 <input disabled={!!payment} maxLength={key==='name'?120:key==='gstin'?15:400} value={buyer?.[key] ?? ''} onChange={e=>setBuyerDetails({...buyerDetails,[key]:key==='gstin'?e.target.value.toUpperCase():e.target.value})}/></label>)}</details>}
-            <dl className="totals-list"><dt>Before tax and discount</dt><dd>{money(totals.total-totals.tax+discountMinor)}</dd><dt>Tax</dt><dd>{money(totals.tax)}</dd><dt>Discount</dt><dd>{money(discount ? Math.round(Number(reduction)*100) : 0)}</dd></dl>
+            <dl className="totals-list"><dt>Before tax and discount</dt><dd>{money(totals.total-totals.tax+discountMinor)}</dd><dt>Tax</dt><dd>{money(totals.tax)}</dd><dt>Discount</dt><dd>{money(discountMinor)}</dd></dl>
             {totals.savings>0 && <p>You saved {money(totals.savings)}</p>}
             <p className="total">Amount due <strong>{money(totals.total)}</strong></p>
-            {catalog?.currency === 'INR' && !payment && !discount && <div className="payment-methods" aria-label="Payment method">{(['cash','upi','split'] as const).map(value=><button type="button" key={value} aria-pressed={method===value} onClick={()=>{setMethod(value);setCashPart('');}}>{{cash:'Cash',upi:'UPI',split:'Split'}[value]}</button>)}</div>}
-            {catalog?.currency === 'INR' && !payment && !discount && method!=='cash' && <>{method==='split' && <label>Cash portion for split payment ({currency})<input name="cashPart" type="number" step=".01" min="0" placeholder="0" value={cashPart} onChange={e=>setCashPart(e.target.value)}/></label>}<button disabled={method==='split' && !(Number(cashPart)>0 && Math.round(Number(cashPart)*100)<totals.total)} type="button" onClick={() => checkUpi(true)}>{Number(cashPart)>0?'Start split payment':'Start UPI payment'}</button></>}
+            {!payment && <><button type="button" aria-expanded={discount} onClick={()=>{setDiscount(!discount);setCoupon('');setReduction('');}}>{discount ? 'Cancel discount' : 'Request discount'}</button>
+            {discount && <>{!!catalog?.discountPolicy?.offers.length && <label>Coupon code<input name="coupon" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/></label>}
+            {invalidOffer && <p role="alert">Coupon is expired or does not apply to this cart.</p>}
+            {!offerCode && <label>Discount ({currency})<input name="discount" value={reduction} onChange={e=>setReduction(e.target.value)} type="number" min=".01" step=".01" required /></label>}
+            {!offerCode && <small>Cashier limit {money(quote.limit)}</small>}</>}</>}
+            {catalog?.currency === 'INR' && !payment && <div className="payment-methods" aria-label="Payment method">{(['cash','upi','split'] as const).map(value=><button type="button" key={value} disabled={needsApproval && value!=='cash'} aria-pressed={method===value} onClick={()=>{setMethod(value);setCashPart('');}}>{{cash:'Cash',upi:'UPI',split:'Split'}[value]}</button>)}</div>}
+            {catalog?.currency === 'INR' && !payment && !needsApproval && method!=='cash' && <>{method==='split' && <label>Cash portion for split payment ({currency})<input name="cashPart" type="number" step=".01" min="0" placeholder="0" value={cashPart} onChange={e=>setCashPart(e.target.value)}/></label>}<button disabled={invalidOffer || method==='split' && !(Number(cashPart)>0 && Math.round(Number(cashPart)*100)<totals.total)} type="button" onClick={() => checkUpi(true)}>{Number(cashPart)>0?'Start split payment':'Start UPI payment'}</button></>}
             {payment && <>
               <p>UPI {payment.status} · {money(payment.amountMinor)}{payment.cashPortionMinor ? ` · Cash to collect ${money(payment.cashPortionMinor)}` : ''}</p>
               {payment.shortUrl && payment.status === 'pending' && <>
@@ -350,20 +361,18 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
               {payment.status === 'paid' ? <button type="button" onClick={() => void run(() => complete(payment.amountMinor+(payment.cashPortionMinor ?? 0), 0, undefined, 'upi'))}>{payment.cashPortionMinor ? 'Confirm cash collected and record split sale':'Record UPI sale'}</button> :
                 <label><input type="checkbox" checked={fallback} onChange={(event) => setFallback(event.target.checked)} /> Accept cash instead. A delayed UPI payment may require a refund.</label>}
             </>}
-            {((!payment && (method==='cash' || catalog?.currency!=='INR')) || (payment && fallback && payment.status !== 'paid')) && <>
-            <button type="button" aria-expanded={discount} onClick={() => setDiscount(!discount)}>{discount ? 'Cancel discount' : 'Request discount'}</button>
-            {discount && <>
+            {((!payment && (needsApproval || method==='cash' || catalog?.currency!=='INR')) || (payment && fallback && payment.status !== 'paid')) && <>
+            {needsApproval && <>
               <p>Give the owner this sale ID to authorize the discount. <code>{operationId}</code></p>
               <button type="button" onClick={() => void run(async () => {
                 await navigator.clipboard.writeText(operationId);
                 setNotice('Sale ID copied.');
               })}>Copy sale ID</button>
-              <label>Discount ({currency})<input name="discount" value={reduction} onChange={e => setReduction(e.target.value)} type="number" min=".01" step=".01" required /></label>
               <label>Owner approval code<input name="approval" required autoComplete="off" /></label>
             </>}
             <label>Cash tendered ({currency})<input name="tendered" value={tender} onChange={e => setTender(e.target.value)} type="number" min="0" step=".01" required /></label>
             {tender && <p>Change {money(Math.max(0,Math.round(Number(tender)*100)-totals.total))}</p>}
-            <button>Complete cash sale <kbd>F9</kbd></button>
+            <button disabled={invalidOffer}>Complete cash sale <kbd>F9</kbd></button>
             </>}
           </fieldset>
         </form>}</aside>

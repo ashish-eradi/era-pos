@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { validQuantity,cashAmount, catalogLine, saleTotals, isCashReceiptV1 } from '@era/contracts';
+import { pricedLines,discountQuote,validQuantity,cashAmount, catalogLine, saleTotals, isCashReceiptV1 } from '@era/contracts';
 import type { CashReceiptV1, SyncAcknowledgementV1, SyncRequestV1 } from '@era/contracts';
 import type { CashInput, CashState } from '../bridge';
 import { cachedCatalog, checkCustomer } from './catalog';
@@ -148,7 +148,7 @@ export async function commitCash(database: DatabaseSync, input: CashInput,cashie
   const prior = receipt(database, input.operationId);
   if (prior) return prior.operationId;
   const identity = register(database);
-  if (input.discountMinor) {
+  if (input.discountMinor && input.approval) {
     const response = await post(database, '/v1/devices/cash-discount', {
       deviceId: identity.deviceId, operationId: input.operationId, amount: input.discountMinor, approval: input.approval,
     });
@@ -171,11 +171,19 @@ export async function commitCash(database: DatabaseSync, input: CashInput,cashie
     }
     checkCustomer(catalog,upi ? upi.customerCode : input.customerCode);
     const bySku = new Map(catalog.items.map((item) => [item.sku, item]));
-    const lines = (upi?.lines ?? input.lines).map(({ sku, quantity, modifierNames }) => {
+    const basket = (upi?.lines ?? input.lines).map(({ sku, quantity, modifierNames }) => {
       const item = bySku.get(sku);
       if (!item || !validQuantity(quantity,item.allowDecimal) || quantity > item.onHand) throw new Error('Check the requested stock quantities');
       return catalogLine(item,quantity,catalog,modifierNames);
     });
+    const discountMinor=upi?.discountMinor ?? input.discountMinor;
+    const offerCode=upi?.offerCode ?? input.offerCode;
+    const at=upi?.pricedAt ?? new Date().toISOString();
+    if (upi?.policyId && catalog.discountPolicy?.id!==upi.policyId) throw new Error('Discount policy changed during payment');
+    const quote=discountQuote(basket,catalog.discountPolicy ?? undefined,offerCode,at);
+    if (!quote.eligible || (offerCode && (input.approval || discountMinor!==quote.offerMinor))) throw new Error('Review the promotion before checkout');
+    if (!offerCode && !input.approval && discountMinor>quote.limit) throw new Error('Owner approval required for this discount');
+    const lines=pricedLines(basket,quote);
     let invoiceNumber: string|undefined;
     if (lines.some(line=>line.gst)) {
       if (lines.some(line=>line.gst && !/^(?:\d{4}|\d{6}|\d{8})$/.test(line.gst.hsn))) throw new Error('Set an HSN on each taxable product and download the catalog');
@@ -190,12 +198,13 @@ export async function commitCash(database: DatabaseSync, input: CashInput,cashie
       cashier,kind: 'cash_sale', shiftId: shift.id, currency: catalog.currency, lines,
       brand:catalog.brand, invoiceNumber,buyer:invoiceNumber ? upi?.buyer ?? input.buyer : undefined,placeOfSupply:invoiceNumber ? upi?.placeOfSupply ?? input.placeOfSupply ?? catalog.receiptGstin?.slice(0,2) : undefined,
       merchantName: catalog.merchantName, receiptAddress: catalog.receiptAddress, receiptGstin: catalog.receiptGstin,
-      discountMinor: input.discountMinor, tenderedMinor: input.tenderedMinor,
-      ...(input.discountMinor && { approval: input.approval }),
+      discountMinor, tenderedMinor: input.tenderedMinor,
+      ...(discountMinor && input.approval && {approval:input.approval}),
+      ...(discountMinor && !input.approval && {policyId:catalog.discountPolicy?.id,pricedAt:at,offerCode}),
       ...(input.tender === 'upi' && { tender: 'upi' as const,cashPortionMinor:upi?.cashPortionMinor }),
     };
     if (!isCashReceiptV1(payload)) throw new Error('Check item quantities, discount and cash tendered');
-    const {total} = saleTotals(lines,input.discountMinor);
+    const {total} = saleTotals(lines,discountMinor);
     if (input.tender === 'upi' && upi?.amountMinor !== total-(upi?.cashPortionMinor ?? 0)) throw new Error('UPI amount does not match the cart');
     const envelope: Envelope = {
       version: 1, merchantId: identity.merchantId, branchId: identity.branchId, registerId: identity.registerId,

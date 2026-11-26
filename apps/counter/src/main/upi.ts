@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { validQuantity,cashAmount, catalogLine, saleTotals, validBuyer, gstStates } from '@era/contracts';
+import { pricedLines,discountQuote,validQuantity,cashAmount, catalogLine, saleTotals, validBuyer, gstStates } from '@era/contracts';
 import type { CashInput, UpiCheckout } from '../bridge';
 import { cachedCatalog, checkCustomer } from './catalog';
 import { apiUrl, catalogCredential, pairing } from './pairing';
@@ -30,18 +30,18 @@ export async function upi(database: DatabaseSync, input?: CashInput): Promise<Up
   const firstRequest = !checkout && !!input;
   if (input) {
     checkCustomer(catalog,input.customerCode);
-    if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(input.operationId) || input.discountMinor ||
+    if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(input.operationId) || !cashAmount(input.discountMinor) || input.approval ||
       input.catalogVersion !== catalog.version || !Array.isArray(input.lines) || !input.lines.length || input.lines.length > 100) {
-      throw new Error('Review the UPI cart. This pilot uses the full catalog price');
+      throw new Error('Review the UPI cart and discount');
     }
     const shift = database.prepare('SELECT 1 FROM cash_shifts WHERE id = ? AND register_id = ? AND closed_at IS NULL')
       .get(input.shiftId, scope.registerId);
     if (!shift) throw new Error('Open a shift before starting UPI');
-    let amount = 0;
+    const pricedAt=new Date().toISOString();
     const items = new Map(catalog.items.map((item) => [item.sku, item]));
     const skus = new Set<string>();
     let gstInvoice=false;
-    const lines = input.lines.map(({ sku, quantity, modifierNames }) => {
+    const basket = input.lines.map(({ sku, quantity, modifierNames }) => {
       const item = items.get(sku);
       if (!item || skus.has(sku) || !validQuantity(quantity,item.allowDecimal) || quantity > Math.min(item.onHand, 1000)) {
         throw new Error('Check the UPI cart quantities');
@@ -51,9 +51,11 @@ export async function upi(database: DatabaseSync, input?: CashInput): Promise<Up
       gstInvoice ||= !!line.gst;
       if (line.gst && (!/^(?:\d{4}|\d{6}|\d{8})$/.test(line.gst.hsn) || !Object.hasOwn(gstStates,input.placeOfSupply ?? catalog.receiptGstin?.slice(0,2) ?? '') || !Object.hasOwn(gstStates,catalog.receiptGstin?.slice(0,2) ?? '')))
         throw new Error('Configure the HSN and place of supply before starting payment');
-      amount += saleTotals([line],0).total;
-      return { sku, quantity, modifierNames };
+      return line;
     });
+    const quote=discountQuote(basket,catalog.discountPolicy ?? undefined,input.offerCode,pricedAt);
+    if (!quote.eligible || (input.offerCode ? input.discountMinor!==quote.offerMinor : input.discountMinor>quote.limit)) throw new Error('Discount is not available for this UPI payment');
+    let amount=saleTotals(pricedLines(basket,quote),input.discountMinor).total;
     if (gstInvoice && !validBuyer(input.buyer,amount)) throw new Error('Enter buyer name and address before starting payment');
     const cashPart=input.cashPortionMinor ?? 0;
     if (!cashAmount(cashPart) || cashPart>=amount) throw new Error('The cash portion must be less than the amount due');
@@ -61,7 +63,7 @@ export async function upi(database: DatabaseSync, input?: CashInput): Promise<Up
     if (!amount || !cashAmount(amount)) throw new Error('Enter a positive UPI total');
     if (checkout && checkout.operationId !== input.operationId) throw new Error('Finish the existing UPI attempt first');
     checkout ??= { registerId: scope.registerId, operationId: input.operationId, shiftId: input.shiftId,
-      lines, customerCode:input.customerCode, cashPortionMinor:cashPart || undefined,buyer:input.buyer,placeOfSupply:input.placeOfSupply, amountMinor: amount, status: 'pending', shortUrl: null, catalogVersion: catalog.version };
+      lines:input.lines, ...(input.discountMinor && {discountMinor:input.discountMinor,offerCode:input.offerCode,pricedAt,policyId:catalog.discountPolicy?.id}), customerCode:input.customerCode, cashPortionMinor:cashPart || undefined,buyer:input.buyer,placeOfSupply:input.placeOfSupply, amountMinor: amount, status: 'pending', shortUrl: null, catalogVersion: catalog.version };
     persist(database, checkout);
   }
   if (!checkout) throw new Error('Start a UPI payment first');

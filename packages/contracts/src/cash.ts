@@ -17,7 +17,7 @@ export function validModifiers(value: unknown): value is ItemModifier[] {
   }
   return true;
 }
-export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number; mrpMinor?: number; unit?:Unit; allowDecimal?:boolean; gst?:GstLine; modifiers?: ItemModifier[] };
+export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number; offerMinor?:number; mrpMinor?: number; unit?:Unit; allowDecimal?:boolean; gst?:GstLine; modifiers?: ItemModifier[] };
 export type CashReceiptV1 = {
   kind: 'cash_sale';
   customerCode?: string;
@@ -37,6 +37,9 @@ export type CashReceiptV1 = {
   tender?: 'upi';
   cashPortionMinor?:number;
   approval?: string;
+  policyId?:string;
+  offerCode?:string;
+  pricedAt?:string;
 };
 
 export function cashAmount(value: unknown): value is number {
@@ -74,12 +77,17 @@ export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
     !Object.hasOwn(gstStates,receipt.placeOfSupply ?? '') || !Object.hasOwn(gstStates,receipt.receiptGstin?.slice(0,2) ?? '') || !/^[A-Z0-9/-]{1,16}$/.test(receipt.invoiceNumber ?? ''))) return false;
   const subtotal = cashSubtotal(receipt.lines);
   if (!cashAmount(subtotal) || receipt.discountMinor>subtotal) return false;
+  if (receipt.policyId!==undefined && (typeof receipt.policyId!=='string' || !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(receipt.policyId))) return false;
+  if (receipt.offerCode!==undefined && (!receipt.policyId || typeof receipt.offerCode!=='string' || !/^[A-Z0-9_-]{1,32}$/.test(receipt.offerCode))) return false;
+  if (receipt.pricedAt!==undefined && (!receipt.policyId || typeof receipt.pricedAt!=='string' || !Number.isFinite(Date.parse(receipt.pricedAt)) || new Date(receipt.pricedAt).toISOString()!==receipt.pricedAt)) return false;
+  if (receipt.lines.some(l=>l.offerMinor!==undefined && (!receipt.offerCode || !cashAmount(l.offerMinor) || l.offerMinor>lineAmount(l.unitMinor,l.quantity))) ||
+    receipt.lines.reduce((sum,l)=>sum+(l.offerMinor ?? 0),0)>receipt.discountMinor) return false;
   const {total} = saleTotals(receipt.lines,receipt.discountMinor);
   if (receipt.invoiceNumber !== undefined && (typeof receipt.invoiceNumber!=='string' || !receipt.lines.some(line=>line.gst) || !validBuyer(receipt.buyer,total))) return false;
   if (receipt.cashPortionMinor!==undefined && (receipt.tender!=='upi' || !cashAmount(receipt.cashPortionMinor) || receipt.cashPortionMinor<=0 || receipt.cashPortionMinor>=total)) return false;
   return new Set(receipt.lines.map(({ sku }) => sku)).size === receipt.lines.length &&
     cashAmount(subtotal) && receipt.discountMinor <= subtotal && cashAmount(total) && receipt.tenderedMinor >= total &&
-    (receipt.discountMinor === 0 || (typeof receipt.approval === 'string' && /^[A-Za-z0-9_-]{43}$/.test(receipt.approval))) &&
+    (receipt.discountMinor === 0 || receipt.policyId!==undefined || (typeof receipt.approval === 'string' && /^[A-Za-z0-9_-]{43}$/.test(receipt.approval))) &&
     (receipt.tender === undefined || (receipt.tender === 'upi' && receipt.currency === 'INR' &&
-      receipt.discountMinor === 0 && receipt.tenderedMinor === total && total > 0));
+      (receipt.discountMinor === 0 || !!receipt.policyId) && receipt.tenderedMinor === total && total > 0));
 }

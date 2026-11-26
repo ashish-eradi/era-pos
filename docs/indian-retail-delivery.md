@@ -1,5 +1,11 @@
 # Indian retail delivery sequence
 
+### Configure cashier discounts
+
+Open **Discounts** in the owner workspace. Set a whole percentage of the bill subtotal or a flat limit in minor currency units (5000 paise is ₹50). The initial limit is zero. Add coupon codes for fixed amounts or whole percentages, optionally scoped to a SKU and an expiry date. An expiry date includes that entire UTC day. Save and download the catalog on each register.
+
+At checkout, select **Request discount** and enter either a manual amount or one coupon code. The counter applies item offers to the matching line before it calculates GST. Cash, UPI and split payments support coupons and manual amounts within the cap. Above-cap manual discounts follow the existing owner-approved cash workflow. Synced receipts retain the applied coupon and its line allocation for refunds.
+
 For WhatsApp Business receipts, configure the Twilio account and token used for SMS and set `ERA_WHATSAPP_FROM` to the approved WhatsApp sender in international number format. Free-form provider messages require an active customer service window. The counter also offers a WhatsApp draft that opens a prefilled bill for the operator to review and send. [Twilio messaging guidance](https://www.twilio.com/docs/whatsapp/message-features)
 
 | Increment | Implementation | Acceptance |

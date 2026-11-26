@@ -13,6 +13,7 @@ async function main() {
   app.setPath('userData',profile);
   const transfers = [];
   const codes = {TEA:'茶-' + '0123456789'.repeat(6),COFFEE:'0012345678905'};
+  let policy={cap:{kind:'flat',value:0},offers:[]};
   const purchaseOrders = [];
   const customers = new Map();
   const modifiers = new Map();
@@ -20,6 +21,14 @@ async function main() {
   const server = createServer(async (req,res) => {
     const path = new URL(req.url,'http://localhost').pathname;
     if (path.startsWith('/v1/')) {
+      if (path.endsWith('/discount-policy')) {
+        if(req.method==='POST') {
+          const chunks=[];
+          for await(const chunk of req) chunks.push(chunk);
+          policy=JSON.parse(Buffer.concat(chunks));
+        }
+        res.setHeader('Content-Type','application/json');res.end(JSON.stringify(policy));return;
+      }
       if (path.endsWith('/West/transfers') && req.method==='POST') {
         const chunks=[];
         for await (const chunk of req) chunks.push(chunk);
@@ -119,6 +128,17 @@ async function main() {
     await waitFor("document.body.innerText.includes('Till A')");
     await win.loadURL(`http://127.0.0.1:${server.address().port}`);
     await waitFor("document.body.innerText.includes('Till A') && document.querySelector('canvas')");
+    await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Discounts').click()");
+    await waitFor("document.body.innerText.includes('Add promotion')");
+    await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Add promotion').click()");
+    await run(`const offerForm=[...document.forms].find(f=>f.textContent.includes('Coupon code'));
+      const input=offerForm.querySelector('input[maxlength="32"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'PILOT');
+      input.dispatchEvent(new Event('input',{bubbles:true}));`);
+    await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Save discount policy').click()");
+    await waitFor("document.body.innerText.includes('Download the catalog on each counter')");
+    assert.equal(policy.offers[0].code,'PILOT');
+    await run("[...document.querySelectorAll('.rail button')].find(b=>b.textContent==='Overview').click()");
     await run("const branch=document.querySelector('.desk select');branch.value='West';branch.dispatchEvent(new Event('change',{bubbles:true}))");
     await waitFor("document.querySelector('.desk select').value === 'West'");
     await waitFor("!!document.querySelector('.sales-metric')");
