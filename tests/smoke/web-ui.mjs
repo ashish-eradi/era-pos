@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 async function main() {
   const profile = await mkdtemp(join(tmpdir(),'era-web-ui-'));
   app.setPath('userData',profile);
+  const transfers = [];
   const purchaseOrders = [];
   const customers = new Map();
   const modifiers = new Map();
@@ -17,6 +18,22 @@ async function main() {
   const server = createServer(async (req,res) => {
     const path = new URL(req.url,'http://localhost').pathname;
     if (path.startsWith('/v1/')) {
+      if (path.endsWith('/West/transfers') && req.method==='POST') {
+        const chunks=[];
+        for await (const chunk of req) chunks.push(chunk);
+        const dispatch=JSON.parse(Buffer.concat(chunks));
+        assert.deepEqual(dispatch,{reference:'TX-1',destination:'Central',lines:[{sku:'TEA',quantity:3}]});
+        transfers.push({...dispatch,id:'transfer-1',origin:'West',status:'in_transit',lines:[{sku:'TEA',product:'Tea',quantity:3,received:0}],receipts:[]});
+        res.setHeader('Content-Type','application/json'); res.end('{"duplicate":false}'); return;
+      }
+      if (path.endsWith('/Central/transfers/transfer-1/receive') && req.method==='POST') {
+        const chunks=[];
+        for await (const chunk of req) chunks.push(chunk);
+        const receipt=JSON.parse(Buffer.concat(chunks));
+        assert.deepEqual(receipt,{reference:'ARR-1',lines:[{sku:'TEA',quantity:3}]});
+        transfers[0].status='received'; transfers[0].lines[0].received=3;
+        res.setHeader('Content-Type','application/json'); res.end('{"duplicate":false}'); return;
+      }
       if (path.endsWith('/purchase-orders') && req.method==='POST') {
         const chunks=[];
         for await (const chunk of req) chunks.push(chunk);
@@ -52,7 +69,8 @@ async function main() {
       }
       const result = path.endsWith('invitations/accept') ? {merchantId:'demo',role:'owner',token:'test'} :
         path.endsWith('/branches') ? ['Central','West'].map(id=>({id,name:id,timezone:'UTC',catalogDefaults:[]})) :
-        path.endsWith('/inventory') ? {items:[{sku:'TEA',product:'Tea',onHand:0,damaged:0,threshold:null}],documents:[],orders:purchaseOrders} :
+        path.endsWith('/inventory') ? {items:[{sku:'TEA',product:'Tea',onHand:5,damaged:0,threshold:null}],documents:[],orders:purchaseOrders,
+          stores:['Central','West'].filter(id=>!path.includes('/'+id+'/')).map(id=>({id,name:id})),transfers:transfers.map(t=>({...t,incoming:path.includes('/Central/')}))} :
         path.endsWith('/customers') ? [...customers.values()] :
         path.endsWith('/C-1/purchases') ? [{id:'linked-sale',register:'A',occurredAt:'2026-11-24T10:00:00Z',currency:'INR',totalMinor:500,lines:[{sku:'TEA',product:'Tea',quantity:1}]}] :
         path.endsWith('/dashboard') ? {currency:'INR',returns:0,products:[],categories:[],buckets:[],
@@ -147,6 +165,16 @@ async function main() {
     await run(`const receiptForm=document.querySelector('input[name=received-0]').form;
       receiptForm.elements.reference.value='shipment-A';receiptForm.elements['received-0'].value='2';receiptForm.requestSubmit();`);
     await waitFor("document.body.innerText.includes('Partially received') && document.body.innerText.includes('3 outstanding')");
+    await run(`const send=document.querySelector('select[name=destination]').form;
+      send.closest('details').open=true;send.elements.reference.value='TX-1';send.elements.destination.value='Central';
+      send.elements['quantity-0'].value='3';send.requestSubmit();`);
+    await waitFor("document.body.innerText.includes('TX-1 · To Central · In transit')");
+    await run("const store=document.querySelector('.section-head select');store.value='Central';store.dispatchEvent(new Event('change',{bubbles:true}))");
+    await waitFor("document.body.innerText.includes('TX-1 · From West · In transit')");
+    await run(`document.querySelector('[aria-label="Received quantity for TEA"]').closest('details').open=true;
+      const arrival=document.querySelector('[aria-label="Received quantity for TEA"]').form;
+      arrival.elements.reference.value='ARR-1';arrival.elements['quantity-0'].value='3';arrival.requestSubmit();`);
+    await waitFor("document.body.innerText.includes('TX-1 · From West · Received')");
     win.setContentSize(390,844);
     await waitFor("document.querySelector('.menu-trigger').offsetWidth > 0");
     await run("document.querySelector('.menu-trigger').click()");

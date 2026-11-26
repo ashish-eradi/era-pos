@@ -1,7 +1,8 @@
+import { inventory, moveStock } from './stock';
 import { receivePurchase } from './purchase-orders';
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Body, ConflictException, Controller, Get, Headers, Inject, NotFoundException, Param, Post } from '@nestjs/common';
-import type { Pool, PoolClient } from 'pg';
+import type { Pool } from 'pg';
 import { branchActor } from '../merchant/branch-access';
 import { MERCHANT_DATABASE } from '../merchant/merchant.controller';
 import { digest, record, text, transaction, uuid } from '../onboarding/shared';
@@ -10,33 +11,6 @@ const operators = ['owner', 'manager'] as const;
 type Scope = [string, string];
 type CountLine = { sku: string; quantity: number; onHand: number; movements: string };
 type Document = { id: string; kind: 'delivery' | 'count'; reference: string; digest: string; lines: CountLine[]; approved_at: Date | null };
-
-async function inventory(client: PoolClient, scope: Scope, skus: string[] | null) {
-  if (skus) {
-    const locked = await client.query(`
-      SELECT sku FROM branch_catalog WHERE merchant_id = $1 AND branch_id = $2 AND sku = ANY($3) ORDER BY sku FOR UPDATE
-    `, [...scope,skus]);
-    if (locked.rowCount !== skus.length) throw new NotFoundException('At least one SKU was not found in the branch');
-  }
-  const { rows } = await client.query<{ sku: string; product: string; "onHand": number; damaged: number; movements: string }>(`
-    SELECT c.sku,c.product,c.alert_threshold AS threshold,COALESCE(sum(m.quantity) FILTER (WHERE m.kind <> 'return_damaged'),0)::float8 AS "onHand",
-      COALESCE(sum(m.quantity) FILTER (WHERE m.kind = 'return_damaged'),0)::float8 AS damaged,
-      count(m.id) FILTER (WHERE m.kind <> 'return_damaged') AS movements
-    FROM branch_catalog c LEFT JOIN stock_movements m USING (merchant_id,branch_id,sku)
-    WHERE c.merchant_id = $1 AND c.branch_id = $2 AND ($3::text[] IS NULL OR c.sku = ANY($3))
-    GROUP BY c.sku,c.product,c.alert_threshold ORDER BY c.sku
-  `, [...scope,skus]);
-  return rows;
-}
-
-async function moveStock(client: PoolClient, scope: Scope, kind: 'delivery' | 'stock_count', lines: { sku: string; quantity: number }[]) {
-  for (const line of lines) {
-    if (line.quantity === 0) continue;
-    await client.query(`
-      INSERT INTO stock_movements (merchant_id,branch_id,sku,id,kind,quantity) VALUES ($1,$2,$3,$4,$5,$6)
-    `, [...scope,line.sku,randomUUID(),kind,line.quantity]);
-  }
-}
 
 @Controller('v1/merchants/:merchantId/branches/:branchId/inventory')
 export class InventoryController {
@@ -53,7 +27,14 @@ export class InventoryController {
       `, [merchant,branch]);
       const orders = await client.query(`SELECT id,reference,supplier,currency,status,lines,created_at FROM purchase_orders
         WHERE merchant_id=$1 AND branch_id=$2 ORDER BY (status IN ('open','partial')) DESC,created_at DESC,id`,[merchant,branch]);
-      return { items, documents: rows, orders:orders.rows };
+      const stores=await client.query('SELECT id,name FROM branches WHERE merchant_id=$1 AND id<>$2 ORDER BY name,id',[merchant,branch]);
+      const transfers=await client.query(`SELECT t.id,t.reference,t.origin,t.destination,t.status,t.lines,t.shortage_note,
+        t.destination=$2 AS incoming,t.status IN ('partial','in_transit') AND t.created_at <= now()-interval '7 days' AS overdue,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('reference',r.reference,'lines',r.lines,'receivedAt',r.received_at)
+          ORDER BY r.received_at,r.reference) FROM stock_transfer_receipts r WHERE (r.merchant_id,r.transfer_id)=(t.merchant_id,t.id)),'[]') AS receipts
+        FROM stock_transfers t WHERE t.merchant_id=$1 AND (t.origin=$2 OR t.destination=$2)
+        ORDER BY (t.status IN ('partial','in_transit')) DESC,t.created_at DESC,t.id`,[merchant,branch]);
+      return { items, documents: rows, orders:orders.rows, stores:stores.rows, transfers:transfers.rows };
     });
   }
 

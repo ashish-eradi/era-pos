@@ -1,3 +1,5 @@
+import { StockTransfers } from './StockTransfers';
+import type { Transfer } from './StockTransfers';
 import { PurchaseOrders } from './PurchaseOrders';
 import type { PurchaseOrder } from './PurchaseOrders';
 import { useState } from 'react';
@@ -7,6 +9,8 @@ import { useMerchantData } from './useMerchantData';
 type InventoryState = {
   items: { sku: string; product: string; onHand: number; damaged: number; threshold:number|null }[];
   orders: PurchaseOrder[];
+  stores:{id:string;name:string}[];
+  transfers:Transfer[];
   documents: {
     id: string; kind: 'delivery' | 'count'; reference: string; purchase_order_id: string | null;
     lines: { sku: string; quantity: number; onHand?: number }[];
@@ -32,6 +36,7 @@ export function Inventory({ branchPath, branchName, token, changed }: { branchPa
         }}><input name="threshold" type="number" min="0" max="1000000000" defaultValue={item.threshold ?? ''} placeholder="Off" aria-label={`Low-stock threshold for ${item.sku}`}/></Action>
       </td></tr>)}</tbody>
     </table>}
+    {state && <StockTransfers path={branchPath+'/transfers'} token={token} stores={state.stores} items={state.items} transfers={state.transfers} changed={load}/>}
     {state && <PurchaseOrders branchPath={branchPath} branchName={branchName} token={token} items={state.items} orders={state.orders} changed={load}/>}
     {state && <Action title="Record inventory document" run={async (form) => {
       const data = values(form);
