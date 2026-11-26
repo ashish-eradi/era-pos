@@ -1,3 +1,4 @@
+import { validQuantity } from '@era/contracts';
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Body, ConflictException, Controller, Headers, Inject, NotFoundException, Param, Post } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
@@ -7,7 +8,7 @@ import { digest, record, text, transaction, uuid } from '../onboarding/shared';
 import { inventory, moveStock } from './stock';
 
 type Line = {sku:string; quantity:number};
-type Transfer = {lines:(Line & {received:number})[]; status:string; shortage_note:string|null};
+type Transfer = {lines:(Line & {received:number;allowDecimal?:boolean})[]; status:string; shortage_note:string|null};
 const roles = ['owner','manager'] as const;
 
 function quantities(input:unknown):Line[] {
@@ -15,8 +16,8 @@ function quantities(input:unknown):Line[] {
   const lines = input.map(value=>{
     const item = record(value);
     const quantity = item.quantity;
-    if (typeof quantity!=='number' || !Number.isInteger(quantity) || quantity<1 || quantity>1000000)
-      throw new BadRequestException('Enter a positive whole quantity up to 1000000');
+    if (!validQuantity(quantity,true) || quantity>1000000)
+      throw new BadRequestException('Enter a positive quantity up to 1000000');
     return {sku:text(item.sku,'SKU',80),quantity};
   }).sort((a,b)=>a.sku<b.sku?-1:a.sku>b.sku?1:0);
   if (new Set(lines.map(line=>line.sku)).size!==lines.length) throw new BadRequestException('List each SKU once');
@@ -52,14 +53,16 @@ export class Transfers {
         return {id:prior.rows[0].id,duplicate:true};
       }
       const skus=lines.map(line=>line.sku);
-      const destinationItems=await client.query('SELECT sku FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=ANY($3)',[merchant,destination,skus]);
+      const destinationItems=await client.query('SELECT sku,unit,allow_decimal FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=ANY($3)',[merchant,destination,skus]);
       if (destinationItems.rowCount!==lines.length) throw new BadRequestException('All transfer SKUs must be in the destination catalog');
       const available=await inventory(client,[merchant,branch],skus);
       const bySku=new Map(available.map(item=>[item.sku,item]));
       const saved=lines.map(line=>{
         const item=bySku.get(line.sku)!;
+        const target=destinationItems.rows.find(row=>row.sku===line.sku)!;
+        if (target.unit!==item.unit || !validQuantity(line.quantity,item.allowDecimal && target.allow_decimal)) throw new BadRequestException('Check the transfer units for '+line.sku);
         if (line.quantity>item.onHand) throw new ConflictException('Insufficient sellable stock for '+line.sku);
-        return {...line,product:item.product,received:0};
+        return {...line,product:item.product,...(item.allowDecimal && target.allow_decimal && {allowDecimal:true}),received:0};
       });
       const id=randomUUID();
       await client.query(`INSERT INTO stock_transfers(merchant_id,origin,reference,destination,id,digest,lines,status,dispatched_by)
@@ -89,8 +92,8 @@ export class Transfers {
       const bySku=new Map(transfer.lines.map(line=>[line.sku,line]));
       for (const line of lines) {
         const sent=bySku.get(line.sku);
-        if (!sent || line.quantity>sent.quantity-sent.received) throw new ConflictException('Quantity exceeds the outstanding transfer for '+line.sku);
-        sent.received+=line.quantity;
+        if (!sent || !validQuantity(line.quantity,sent.allowDecimal) || line.quantity>Math.round((sent.quantity-sent.received)*1000)/1000) throw new ConflictException('Quantity exceeds the outstanding transfer for '+line.sku);
+        sent.received=Math.round((sent.received+line.quantity)*1000)/1000;
       }
       await inventory(client,[merchant,branch],lines.map(line=>line.sku));
       await moveStock(client,[merchant,branch],'transfer_in',lines);

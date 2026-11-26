@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { cashAmount, catalogLine, saleTotals, isCashReceiptV1 } from '@era/contracts';
+import { validQuantity,cashAmount, catalogLine, saleTotals, isCashReceiptV1 } from '@era/contracts';
 import type { CashReceiptV1, SyncAcknowledgementV1, SyncRequestV1 } from '@era/contracts';
 import type { CashInput, CashState } from '../bridge';
 import { cachedCatalog, checkCustomer } from './catalog';
@@ -87,10 +87,10 @@ export function parkSale(db: DatabaseSync,id: string,lines: CashInput['lines'],c
   if (!openShift(db,registerId) || savedUpi(db) || receipt(db,id)) throw new Error('Open an unpaid sale before parking');
   const catalog = cachedCatalog(db);
   checkCustomer(catalog,customerCode);
-  const stock = new Map(catalog?.items.map(item => [item.sku,item.onHand]));
+  const stock = new Map(catalog?.items.map(item => [item.sku,item]));
   if (!operationPattern.test(id) || !Array.isArray(lines) || !lines.length || lines.length>100 ||
-      lines.some(line => !line || !Number.isInteger(line.quantity) || line.quantity<1 ||
-        line.quantity>Math.min(1000,stock.get(line.sku) ?? 0)) || new Set(lines.map(line => line.sku)).size!==lines.length)
+      lines.some(line => !line || !validQuantity(line.quantity,stock.get(line.sku)?.allowDecimal) ||
+        line.quantity>Math.min(1000,stock.get(line.sku)?.onHand ?? 0)) || new Set(lines.map(line => line.sku)).size!==lines.length)
     throw new Error('Review the cart before parking');
   db.prepare('INSERT OR REPLACE INTO parked_sales(register_id,operation_id,lines,parked_at,customer_code) VALUES (?,?,?,?,?)')
     .run(registerId,id,JSON.stringify(lines.map(({sku,quantity,modifierNames})=>({sku,quantity,modifierNames}))),new Date().toISOString(),customerCode ?? null);
@@ -173,7 +173,7 @@ export async function commitCash(database: DatabaseSync, input: CashInput,cashie
     const bySku = new Map(catalog.items.map((item) => [item.sku, item]));
     const lines = (upi?.lines ?? input.lines).map(({ sku, quantity, modifierNames }) => {
       const item = bySku.get(sku);
-      if (!item || !Number.isInteger(quantity) || quantity < 1 || quantity > item.onHand) throw new Error('Check the requested stock quantities');
+      if (!item || !validQuantity(quantity,item.allowDecimal) || quantity > item.onHand) throw new Error('Check the requested stock quantities');
       return catalogLine(item,quantity,catalog,modifierNames);
     });
     let invoiceNumber: string|undefined;
@@ -205,7 +205,10 @@ export async function commitCash(database: DatabaseSync, input: CashInput,cashie
       .run(input.operationId, identity.registerId, shift.id, total, JSON.stringify(envelope));
     database.prepare('INSERT INTO cash_outbox (id) VALUES (?)').run(input.operationId);
     database.prepare('DELETE FROM parked_sales WHERE register_id=? AND operation_id=?').run(identity.registerId,input.operationId);
-    for (const line of lines) bySku.get(line.sku)!.onHand -= line.quantity;
+    for (const line of lines) {
+      const item=bySku.get(line.sku)!;
+      item.onHand=Math.round((item.onHand-line.quantity)*1000)/1000;
+    }
     database.prepare("UPDATE register_settings SET value = ? WHERE key = 'catalog-snapshot'").run(JSON.stringify(catalog));
     if (upi) clearUpi(database);
     return input.operationId;

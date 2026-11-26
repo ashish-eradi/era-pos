@@ -27,8 +27,8 @@ function validatePhoto(value: unknown): string | null {
 }
 
 async function conflicts(client: PoolClient, scope: Scope, rows: CatalogRow[]) {
-  const existing = await client.query<{ sku: string; barcode: string; quantity: number | null }>(`
-    SELECT c.sku, c.barcode, s.quantity FROM branch_catalog c
+  const existing = await client.query<{ sku: string; barcode: string; unit:string; allow_decimal:boolean; quantity: number | null }>(`
+    SELECT c.sku, c.barcode,c.unit,c.allow_decimal,s.quantity::float8 AS quantity FROM branch_catalog c
     LEFT JOIN stock_movements s ON (s.merchant_id, s.branch_id, s.sku) = (c.merchant_id, c.branch_id, c.sku) AND s.kind = 'opening'
     WHERE c.merchant_id = $1 AND c.branch_id = $2
   `, scope);
@@ -40,6 +40,8 @@ async function conflicts(client: PoolClient, scope: Scope, rows: CatalogRow[]) {
   const byBarcode = new Map(mapped.rows.map((row) => [row.barcode, row.sku]));
   return rows.flatMap((item, index) => {
     const prior = bySku.get(item.sku);
+    if (prior && item.unit && prior.unit!==item.unit) return [{row:index+2,message:'Use a separate SKU for a different stock unit'}];
+    if (prior?.allow_decimal && item.allowDecimal===false) return [{row:index+2,message:'This SKU already supports fractional stock'}];
     const assignedSku = byBarcode.get(item.barcode);
     if ((prior && prior.barcode !== item.barcode) || (assignedSku && assignedSku !== item.sku)) {
       return [{ row: index + 2, message: 'Barcode is already assigned to a different SKU or this SKU has another barcode' }];
@@ -140,13 +142,13 @@ export class CatalogController {
         await client.query('INSERT INTO catalog_barcodes VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
           [scope[0], item.barcode, item.sku]);
         await client.query(`
-          INSERT INTO branch_catalog (merchant_id, branch_id, sku, product, barcode, price_minor, attributes, category, mrp_minor)
-          VALUES ($1,$2,$3,$4,$5,$6,$7, NULLIF($8, ''),$9)
+          INSERT INTO branch_catalog (merchant_id, branch_id, sku, product, barcode, price_minor, attributes, category, mrp_minor,unit,allow_decimal)
+          VALUES ($1,$2,$3,$4,$5,$6,$7, NULLIF($8, ''),$9,coalesce($11,'pcs'),coalesce($12,false))
           ON CONFLICT (merchant_id, branch_id, sku) DO UPDATE SET
             product = EXCLUDED.product, price_minor = EXCLUDED.price_minor, attributes = EXCLUDED.attributes,
-            mrp_minor = CASE WHEN $10 THEN EXCLUDED.mrp_minor ELSE branch_catalog.mrp_minor END,
+            allow_decimal=coalesce($12,branch_catalog.allow_decimal),mrp_minor = CASE WHEN $10 THEN EXCLUDED.mrp_minor ELSE branch_catalog.mrp_minor END,
             category = CASE WHEN $8::text IS NULL THEN branch_catalog.category ELSE EXCLUDED.category END
-        `, [...scope, item.sku, item.product, item.barcode, item.priceMinor, JSON.stringify(item.attributes), item.category ?? null,item.mrpMinor ?? null,item.mrpMinor !== undefined]);
+        `, [...scope, item.sku, item.product, item.barcode, item.priceMinor, JSON.stringify(item.attributes), item.category ?? null,item.mrpMinor ?? null,item.mrpMinor !== undefined,item.unit ?? null,item.allowDecimal ?? null]);
         if (item.openingStock !== null) {
           await client.query(`
             INSERT INTO stock_movements (merchant_id, branch_id, sku, id, kind, quantity)
@@ -176,7 +178,7 @@ export class CatalogController {
         COALESCE((SELECT max(version) FROM catalog_imports WHERE merchant_id = r.merchant_id AND branch_id = r.branch_id), 0)::text AS version,
         COALESCE((
           SELECT jsonb_agg(jsonb_build_object('sku', c.sku, 'product', c.product, 'barcode', c.barcode,
-            'mrpMinor', c.mrp_minor,'priceMinor', c.price_minor, 'category', c.category,'hsn',c.hsn, 'photo',c.photo, 'modifiers',c.modifiers, 'attributes', c.attributes, 'onHand', COALESCE(s.total, 0)) ORDER BY c.sku)
+            'unit',c.unit,'allowDecimal',c.allow_decimal,'mrpMinor', c.mrp_minor,'priceMinor', c.price_minor, 'category', c.category,'hsn',c.hsn, 'photo',c.photo, 'modifiers',c.modifiers, 'attributes', c.attributes, 'onHand', COALESCE(s.total, 0)) ORDER BY c.sku)
           FROM branch_catalog c LEFT JOIN LATERAL (
             SELECT sum(quantity) FILTER (WHERE kind <> 'return_damaged') AS total FROM stock_movements mv
             WHERE (mv.merchant_id, mv.branch_id, mv.sku) = (c.merchant_id, c.branch_id, c.sku)

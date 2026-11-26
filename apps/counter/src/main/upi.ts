@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { cashAmount, catalogLine, saleTotals, validBuyer, gstStates } from '@era/contracts';
+import { validQuantity,cashAmount, catalogLine, saleTotals, validBuyer, gstStates } from '@era/contracts';
 import type { CashInput, UpiCheckout } from '../bridge';
 import { cachedCatalog, checkCustomer } from './catalog';
 import { apiUrl, catalogCredential, pairing } from './pairing';
@@ -43,7 +43,7 @@ export async function upi(database: DatabaseSync, input?: CashInput): Promise<Up
     let gstInvoice=false;
     const lines = input.lines.map(({ sku, quantity, modifierNames }) => {
       const item = items.get(sku);
-      if (!item || skus.has(sku) || !Number.isInteger(quantity) || quantity < 1 || quantity > Math.min(item.onHand, 1000)) {
+      if (!item || skus.has(sku) || !validQuantity(quantity,item.allowDecimal) || quantity > Math.min(item.onHand, 1000)) {
         throw new Error('Check the UPI cart quantities');
       }
       skus.add(sku);

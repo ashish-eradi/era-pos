@@ -7,7 +7,7 @@ import { Action, Field, request, values } from '../onboarding';
 import { useMerchantData } from './useMerchantData';
 
 type InventoryState = {
-  items: { sku: string; product: string; barcode?:string; onHand: number; damaged: number; threshold:number|null }[];
+  items: { sku: string; product: string; barcode?:string; unit?:string; allowDecimal?:boolean; onHand: number; damaged: number; threshold:number|null }[];
   orders: PurchaseOrder[];
   stores:{id:string;name:string}[];
   transfers:Transfer[];
@@ -60,8 +60,8 @@ export function Inventory({ branchPath, branchName, token, changed }: { branchPa
       {matches.slice(0,12).map(i=><button type="button" key={i.sku} onClick={()=>add(i.sku)}>Add {i.product} ({i.sku})</button>)}
       {term && !matches.length && <p className="empty-state">No matching items available to add.</p>}
       <table><thead><tr><th>Item</th><th>Document quantity</th></tr></thead><tbody>
-        {state.items.filter(i=>selected.includes(i.sku)).map(item => <tr key={item.sku}><td>{item.product} ({item.sku})</td><td>
-          <input aria-label={`Quantity for ${item.sku}`} type="number" min="0" step="1" required name={`quantity-${item.sku}`} /><button type="button" aria-label={`Remove ${item.sku}`} onClick={()=>select(current=>current.filter(s=>s!==item.sku))}>Remove</button>
+        {state.items.filter(i=>selected.includes(i.sku)).map(item => <tr key={item.sku}><td>{item.product} ({item.sku}) {item.unit}</td><td>
+          <input aria-label={`Quantity for ${item.sku}`} type="number" min="0" step={item.allowDecimal?'0.001':'1'} required name={`quantity-${item.sku}`} /><button type="button" aria-label={`Remove ${item.sku}`} onClick={()=>select(current=>current.filter(s=>s!==item.sku))}>Remove</button>
         </td></tr>)}</tbody></table>
     </Action>}
     {state?.documents.map((doc) => <details key={doc.id}>

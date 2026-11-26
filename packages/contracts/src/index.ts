@@ -3,6 +3,8 @@ export type HealthResponseV1 = {
   status: 'ok' | 'unavailable';
 };
 
+export { validQuantity, lineAmount, units } from './quantity';
+export type { Unit } from './quantity';
 export { cashAmount, cashSubtotal, isCashReceiptV1, validModifiers } from './cash';
 export type { CashLineV1, CashReceiptV1, ItemModifier } from './cash';
 
@@ -35,6 +37,8 @@ export type CatalogSnapshotV1 = {
     photo?: string | null;
     modifiers?: import('./cash').ItemModifier[];
     priceMinor: number;
+    unit?: import('./quantity').Unit;
+    allowDecimal?: boolean;
     mrpMinor?: number | null;
     attributes: Record<string, string>;
     onHand: number;

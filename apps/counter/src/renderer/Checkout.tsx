@@ -131,7 +131,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
         if (item) {
           event.preventDefault();
           setCart((current) => (current[item.sku] ?? 0) < Math.min(1000, item.onHand)
-            ? { ...current, [item.sku]: (current[item.sku] ?? 0) + 1 } : current);
+            ? { ...current, [item.sku]: Math.min(item.onHand,1000,Math.round(((current[item.sku] ?? 0)+1)*1000)/1000) } : current);
         }
       } else if (event.key.length === 1) buffer += event.key;
       else if (event.key !== 'Shift') buffer = '';
@@ -176,7 +176,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
   function add(sku: string) {
     const available = items.find((item) => item.sku === sku)?.onHand ?? 0;
     setCart((current) => (current[sku] ?? 0) < Math.min(1000, available)
-      ? { ...current, [sku]: (current[sku] ?? 0) + 1 } : current);
+      ? { ...current, [sku]: Math.min(available,1000,Math.round(((current[sku] ?? 0)+1)*1000)/1000) } : current);
   }
 
   function count(event: FormEvent<HTMLFormElement>, closing: boolean) {
@@ -272,7 +272,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
           <button className="product-tile" type="button" aria-label={`Add ${item.product}, ${item.sku}`}
             disabled={busy || !!payment || (cart[item.sku] ?? 0) >= Math.min(1000, item.onHand)} onClick={() => add(item.sku)}>
             {item.photo && <img className="product-photo" src={item.photo} alt="" loading="lazy" />}
-            <small>{categoryOf(item)}</small><b>{item.product}</b><strong>{money(item.priceMinor)}</strong>
+            <small>{categoryOf(item)}</small><b>{item.product}</b><strong>{money(item.priceMinor)}{item.unit && item.unit!=='pcs' && ' / '+item.unit}</strong>
             <small>{item.sku} &middot; {item.onHand} on hand</small>
             {Object.entries(item.attributes).map(([key,value]) => <small key={key}>{key} {value}</small>)}
           </button>
@@ -308,7 +308,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
                   }}/>
                 {option.name} +{money(option.priceMinor)} per unit
               </label>)}
-              <label>Quantity<input aria-label={`Quantity for ${line.product}`} type="number" min="1"
+              <label>Quantity {line.unit}<input aria-label={`Quantity for ${line.product}`} type="number" min={line.allowDecimal?'0.001':'1'} step={line.allowDecimal?'0.001':'1'}
                 max={Math.min(1000, items.find(({ sku }) => sku === line.sku)!.onHand)}
                 key={line.quantity} defaultValue={line.quantity} required disabled={!!payment}
                 onKeyDown={(event) => {
@@ -324,7 +324,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
                   else field.value = String(line.quantity);
                 }} /></label>
               <button type="button" disabled={!!payment} onClick={() => {
-                if (line.quantity===1) setOptions(current=>({...current,[line.sku]:[]}));
+                if (line.quantity<=1) setOptions(current=>({...current,[line.sku]:[]}));
                 setCart(current=>({...current,[line.sku]:Math.max(0,current[line.sku]-1)}));
               }} aria-label={`Remove one ${line.product}`}>&minus;</button>
               <button type="button" aria-label={`Add one ${line.product}`} disabled={!!payment || line.quantity >= Math.min(1000, items.find(item => item.sku === line.sku)!.onHand)} onClick={() => add(line.sku)}>+</button>

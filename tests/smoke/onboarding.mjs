@@ -269,6 +269,18 @@ export async function checkOnboarding(port, connectionString) {
     assert.deepEqual(quoted.lines[0].modifiers,modifiers);
     assert.equal(quoted.lines[0].taxMinor,2682);
     assert.equal(quoted.creditMinor,17582);
+    const weighedCsv='sku,product,barcode,price_minor,opening_stock,attributes,unit,allow_decimal,mrp_minor\nRICE,Rice,001025,999,2.5,,kg,true,1200';
+    const weighedPreview=await call(importPath+'/preview',owner.token,201,{csv:weighedCsv});
+    assert.deepEqual(weighedPreview.issues,[]);
+    await call(importPath+'/confirm',owner.token,201,{csv:weighedCsv,digest:weighedPreview.digest});
+    const weighedLine={sku:'RICE',product:'Rice',quantity:0.125,unitMinor:999,unit:'kg',allowDecimal:true,mrpMinor:1200};
+    const weighed={...operation,operationId:randomUUID(),payload:{kind:'cash_sale',shiftId:operation.payload.shiftId,currency:'INR',discountMinor:0,tenderedMinor:125,lines:[weighedLine]}};
+    assert.equal((await call('devices/cash-sales',freshProof,201,{deviceId,operation:weighed})).status,'committed');
+    const rice=(await call('devices/catalog',freshProof,201,{deviceId})).items.find(row=>row.sku==='RICE');
+    assert.equal(rice.unit,'kg');assert.equal(rice.onHand,2.375);
+    const partial=await call('devices/returns',freshProof,201,{deviceId,id:randomUUID(),action:'create',shiftId:weighed.payload.shiftId,
+      saleId:weighed.operationId,reason:'Partial weight',lines:[{sku:'RICE',quantity:0.05,disposition:'sellable'}]});
+    assert.equal(partial.creditMinor,50);
     console.log('Discount authorization, cash sync replay, single stock decrement and owner isolation passed');
     const heartbeat = { deviceId, appVersion: '0.0.0', pending: 2, rejected: 1, oldestPendingAt: operation.occurredAt };
     await call('devices/heartbeat', otherProof, 401, heartbeat);

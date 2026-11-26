@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Body, ConflictException, Controller, Get, Headers, Inject, NotFoundException, Param, Post } from '@nestjs/common';
-import { cashAmount, saleTotals } from '@era/contracts';
+import { cashAmount, validQuantity, saleTotals } from '@era/contracts';
 import type { CashLineV1, CashReceiptV1, ReturnReceipt, ReturnSelection } from '@era/contracts';
 import type { Pool, PoolClient } from 'pg';
 import { branchActor, deviceScope } from '../merchant/branch-access';
@@ -21,15 +21,15 @@ function selection(value: unknown) {
   const data = record(value);
   const sku = text(data.sku, 'SKU', 80);
   const quantity = data.quantity;
-  if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1 || quantity > 1000) {
-    throw new BadRequestException('Enter a whole quantity from 1 to 1000');
+  if (!validQuantity(quantity,true) || quantity > 1000) {
+    throw new BadRequestException('Enter a positive quantity up to 1000 with at most three decimal places');
   }
   return { sku, quantity };
 }
 
 async function usedQuantities(client: PoolClient, key: [string, string, string]) {
   const { rows } = await client.query<{ sku: string; quantity: string }>(`
-    SELECT line->>'sku' AS sku,sum((line->>'quantity')::int) AS quantity
+    SELECT line->>'sku' AS sku,sum((line->>'quantity')::numeric) AS quantity
     FROM sale_returns r CROSS JOIN LATERAL jsonb_array_elements(r.receipt->'lines') AS line
     WHERE (r.merchant_id,r.sale_register_id,r.sale_id) = ($1,$2,$3) AND r.status IN ('pending_refund','complete')
     GROUP BY line->>'sku'
@@ -45,7 +45,7 @@ async function cashRefund(client:PoolClient,key:[string,string,string],sale:Orig
 }
 
 function portion(amount: number, position: number, total: number) {
-  return total ? Number(BigInt(amount) * BigInt(position) / BigInt(total)) : 0;
+  return total ? Number(BigInt(amount) * BigInt(Math.round(position*1000)) / BigInt(Math.round(total*1000))) : 0;
 }
 
 function credits(original: Original, selections: ReturnSelection[], used: Map<string, number>) {
@@ -54,12 +54,12 @@ function credits(original: Original, selections: ReturnSelection[], used: Map<st
   return selections.map(({ sku, quantity, disposition }) => {
     const line = snapshots.get(sku);
     const prior = used.get(sku) ?? 0;
-    if (!line || prior + quantity > line.quantity) throw new ConflictException(`Return exceeds remaining quantity for ${sku}`);
+    if (!line || !validQuantity(quantity,line.allowDecimal) || Math.round((prior + quantity)*1000) > Math.round(line.quantity*1000)) throw new ConflictException(`Return exceeds remaining quantity for ${sku}`);
     const split = (amount: number) => portion(amount, prior + quantity, line.quantity) - portion(amount, prior, line.quantity);
     const discountMinor = split(line.discount);
     const taxMinor = split(line.tax);
-    return { sku, product: line.product, modifiers:line.modifiers, unitMinor: line.unitMinor, quantity, disposition, discountMinor, taxMinor,
-      creditMinor: line.gst ? split(line.payable) : line.unitMinor * quantity - discountMinor };
+    return { sku, product: line.product, modifiers:line.modifiers,unit:line.unit,allowDecimal:line.allowDecimal, unitMinor: line.unitMinor, quantity, disposition, discountMinor, taxMinor,
+      creditMinor: line.gst || line.allowDecimal ? split(line.payable) : line.unitMinor * quantity - discountMinor };
   });
 }
 
@@ -138,19 +138,21 @@ export class ReturnsController {
       };
       const lines = credits(source.receipt, selections, await usedQuantities(client, [merchant,source.register_id,saleId]));
       if (crossStore) {
-        const local = await client.query('SELECT sku FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=ANY($3)',
+        const local = await client.query('SELECT sku,unit,allow_decimal FROM branch_catalog WHERE merchant_id=$1 AND branch_id=$2 AND sku=ANY($3)',
           [merchant,branch,lines.map(line=>line.sku)]);
+        if (local.rows.some(item=>lines.some(line=>line.sku===item.sku && ((line.unit ?? 'pcs')!==item.unit || !validQuantity(line.quantity,item.allow_decimal))))) throw new ConflictException('Stock units differ between branches');
         if (local.rowCount!==lines.length) throw new ConflictException('Add the returned SKUs to the receiving branch catalog before requesting approval');
       }
       let replacement: CashLineV1 | undefined;
       if (data.replacement !== undefined) {
         const item = selection(data.replacement);
-        const { rows } = await client.query<{ product: string; price_minor: number;rate:number|null;inclusive:boolean;hsn:string|null }>(`
-          SELECT c.product,c.price_minor,(m.gst_rates->>c.category)::float8 AS rate,m.gst_inclusive AS inclusive,c.hsn
+        const { rows } = await client.query<{ product: string; price_minor: number; unit:NonNullable<CashLineV1['unit']>; allow_decimal:boolean;rate:number|null;inclusive:boolean;hsn:string|null }>(`
+          SELECT c.product,c.price_minor,c.unit,c.allow_decimal,(m.gst_rates->>c.category)::float8 AS rate,m.gst_inclusive AS inclusive,c.hsn
           FROM branch_catalog c JOIN merchants m ON m.id=c.merchant_id WHERE c.merchant_id = $1 AND c.branch_id = $2 AND c.sku = $3
         `, [merchant,branch,item.sku]);
         if (!rows[0]) throw new NotFoundException('Replacement SKU is missing from this branch');
-        replacement = { ...item, product: rows[0].product, unitMinor: rows[0].price_minor };
+        if (!validQuantity(item.quantity,rows[0].allow_decimal)) throw new BadRequestException('Replacement requires a whole quantity');
+        replacement = { ...item, unit:rows[0].unit,allowDecimal:rows[0].allow_decimal,product: rows[0].product, unitMinor: rows[0].price_minor };
         if (rows[0].rate != null) {
           if (!rows[0].hsn) throw new BadRequestException('Configure an HSN for the replacement SKU');
           replacement.gst={rate:rows[0].rate,inclusive:rows[0].inclusive,hsn:rows[0].hsn};

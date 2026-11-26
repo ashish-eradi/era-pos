@@ -47,11 +47,11 @@ export function Returns({ open, initialId }: { open: boolean; initialId: string 
       <label>Original receipt ID <input name="saleId" defaultValue={initialId} required /></label>
       <details><summary>Add the original register ID (if requested)</summary><label>Original register ID <input name="saleRegisterId" maxLength={120}/></label></details>
       <label>Return SKU <input name="sku" required /></label>
-      <label>Quantity <input name="quantity" type="number" min="1" max="1000" defaultValue="1" required /></label>
+      <label>Quantity <input name="quantity" type="number" min="0.001" step="0.001" max="1000" defaultValue="1" required /></label>
       <label>Condition <select name="disposition"><option value="sellable">Sellable</option><option value="damaged">Damaged</option></select></label>
       <label>Reason <input name="reason" maxLength={500} required /></label>
       <label>Replacement SKU <input name="replacement" /></label>
-      <label>Replacement quantity <input name="replacementQuantity" type="number" min="1" max="1000" defaultValue="1" /></label>
+      <label>Replacement quantity <input name="replacementQuantity" type="number" min="0.001" step="0.001" max="1000" defaultValue="1" /></label>
       <button>Request return</button>
     </fieldset></form>}
     {error && <p role="alert">{error}</p>}

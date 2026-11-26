@@ -23,7 +23,7 @@ export function SaleReceipt({ sale }: { sale: SyncRequestV1<CashReceiptV1> }) {
     <table><thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead>
       <tbody>{receipt.lines.map((line,i) => <tr key={line.sku}><td>{line.product}{line.modifiers?.map(m=><small key={m.name}>{m.name} +{money(m.priceMinor)} each</small>)}<small>{line.mrpMinor!=null && <>MRP {money(line.mrpMinor)} · </>}{money(line.unitMinor)} each</small>{line.gst && <small>HSN {line.gst.hsn} · GST {line.gst.rate}%<br/>Taxable {money(breakdown[i].taxable)}<br/>
           {Object.entries(components[i]).map(([k,v])=><span key={k}>{k} {money(v ?? 0)} </span>)}</small>}</td>
-        <td>{line.quantity}</td><td>{money(breakdown[i].payable)}</td></tr>)}</tbody></table>
+        <td>{line.quantity} {line.unit}</td><td>{money(breakdown[i].payable)}</td></tr>)}</tbody></table>
     <dl><dt>Before tax and discount</dt><dd>{money(total-tax+receipt.discountMinor)}</dd><dt>Discount</dt><dd>{money(receipt.discountMinor)}</dd>
       {receipt.invoiceNumber && Object.entries(summary).map(([key,amount])=><div key={key} className="tax-row"><dt>{key}</dt><dd>{money(amount)}</dd></div>)}
       {savings>0 && <><dt>You saved</dt><dd>{money(savings)}</dd></>}<dt>Total</dt><dd><strong>{money(total)}</strong></dd>{receipt.cashPortionMinor && <><dt>Cash paid</dt><dd>{money(receipt.cashPortionMinor)}</dd></>}<dt>{receipt.tender === 'upi' ? 'UPI paid' : 'Cash tendered'}</dt><dd>{money(receipt.tenderedMinor-(receipt.cashPortionMinor ?? 0))}</dd>

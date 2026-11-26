@@ -1,3 +1,4 @@
+import { validQuantity,lineAmount,units,type Unit } from './quantity';
 import type { CurrencyV1 } from './index';
 
 import { saleTotals, gstStates, validBuyer } from './gst';
@@ -16,7 +17,7 @@ export function validModifiers(value: unknown): value is ItemModifier[] {
   }
   return true;
 }
-export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number; mrpMinor?: number; gst?:GstLine; modifiers?: ItemModifier[] };
+export type CashLineV1 = { sku: string; product: string; quantity: number; unitMinor: number; mrpMinor?: number; unit?:Unit; allowDecimal?:boolean; gst?:GstLine; modifiers?: ItemModifier[] };
 export type CashReceiptV1 = {
   kind: 'cash_sale';
   customerCode?: string;
@@ -43,7 +44,7 @@ export function cashAmount(value: unknown): value is number {
 }
 
 export function cashSubtotal(lines: CashLineV1[]): number {
-  return lines.reduce((sum, line) => sum + line.quantity * line.unitMinor, 0);
+  return lines.reduce((sum, line) => sum + lineAmount(line.unitMinor,line.quantity), 0);
 }
 
 export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
@@ -61,7 +62,7 @@ export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
       !cashAmount(receipt.discountMinor) || !cashAmount(receipt.tenderedMinor)) return false;
   if (!receipt.lines.every((line) => line && typeof line.sku === 'string' && line.sku.length > 0 && line.sku.length <= 80 && !line.sku.includes('\0') &&
       typeof line.product === 'string' && line.product.length > 0 && line.product.length <= 150 && !line.product.includes('\0') &&
-      Number.isInteger(line.quantity) && line.quantity > 0 && line.quantity <= 1000 && cashAmount(line.unitMinor))) return false;
+      (line.unit===undefined || units.includes(line.unit)) && (line.allowDecimal===undefined || typeof line.allowDecimal==='boolean') && validQuantity(line.quantity,line.allowDecimal) && line.quantity <= 1000 && cashAmount(line.unitMinor))) return false;
   if ((receipt.buyer !== undefined || receipt.placeOfSupply !== undefined) && receipt.invoiceNumber === undefined) return false;
   if (receipt.lines.some(line=>line.mrpMinor!==undefined && !cashAmount(line.mrpMinor))) return false;
   if (receipt.lines.some(line => line.modifiers !== undefined && (!validModifiers(line.modifiers) ||

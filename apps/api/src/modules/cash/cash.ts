@@ -74,7 +74,8 @@ export class CashController {
       !Number.isFinite(Date.parse(occurredAt)) || new Date(occurredAt).toISOString() !== occurredAt || !isCashReceiptV1(receipt)) {
       return Promise.resolve(fail('invalid_operation'));
     }
-    const lines = receipt.lines.map(({ sku, product, quantity, unitMinor, mrpMinor, gst, modifiers }) => ({ sku, product, quantity, unitMinor,
+    const lines = receipt.lines.map(({ sku, product, quantity, unitMinor, unit, allowDecimal, mrpMinor, gst, modifiers }) => ({ sku, product, quantity, unitMinor,
+      ...(unit && {unit}), ...(allowDecimal && {allowDecimal}),
       ...(mrpMinor!==undefined && {mrpMinor}),
       ...(modifiers?.length && {modifiers:modifiers.map(({name,priceMinor})=>({name,priceMinor}))}),
       ...(gst && {gst:{rate:gst.rate,inclusive:gst.inclusive,hsn:gst.hsn}}) }));
@@ -116,9 +117,9 @@ export class CashController {
         return fail('invalid_operation');
       if (receipt.cashier && !(await client.query('SELECT 1 FROM memberships WHERE merchant_id=$1 AND id=$2',[merchant,receipt.cashier.id])).rowCount)
         return fail('invalid_operation');
-      const products = await client.query('SELECT sku FROM branch_catalog WHERE merchant_id = $1 AND branch_id = $2 AND sku = ANY($3)',
+      const products = await client.query('SELECT sku,unit,allow_decimal FROM branch_catalog WHERE merchant_id = $1 AND branch_id = $2 AND sku = ANY($3)',
         [merchant, branch, lines.map(({ sku }) => sku)]);
-      if (products.rowCount !== lines.length) return fail('invalid_operation');
+      if (products.rowCount !== lines.length || products.rows.some(item=>{const line=lines.find(l=>l.sku===item.sku)!;return (line.unit ?? 'pcs')!==item.unit || (line.allowDecimal && !item.allow_decimal);})) return fail('invalid_operation');
       if (receipt.tender === 'upi') {
         const payment = await client.query(`
           SELECT 1 FROM upi_attempts WHERE merchant_id = $1 AND register_id = $2 AND operation_id = $3
