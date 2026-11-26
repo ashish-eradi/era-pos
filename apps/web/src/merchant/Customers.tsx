@@ -3,7 +3,7 @@ import { Action, request } from '../onboarding';
 import { useMerchantData } from './useMerchantData';
 
 type Customer = { code: string; name: string; email: string | null };
-type Purchase = { id: string; register: string; occurredAt: string; currency: string; totalMinor: number; lines: Array<{sku:string; product:string; quantity:number}> };
+type Purchase = { id: string; register: string; occurredAt: string; currency: string; totalMinor: number; lines: Array<{sku:string; product:string; quantity:number; modifiers?: {name:string}[]}> };
 
 export function Customers({path,token,timezone}:{path:string;token:string;timezone:string}) {
   const [revision,refresh] = useState(0);
@@ -42,7 +42,7 @@ export function Customers({path,token,timezone}:{path:string;token:string;timezo
       {history.data?.length===0 && <p>No synced purchases for this customer.</p>}
       {history.data?.map(sale=><details key={sale.register+'/'+sale.id}><summary>
         {new Date(sale.occurredAt).toLocaleString(undefined,{timeZone:timezone})} · {new Intl.NumberFormat(undefined,{style:'currency',currency:sale.currency}).format(sale.totalMinor/100)}
-      </summary><p>Receipt {sale.id} · Register {sale.register}</p><ul>{sale.lines.map(line=><li key={line.sku}>{line.quantity} × {line.product}</li>)}</ul></details>)}
+      </summary><p>Receipt {sale.id} · Register {sale.register}</p><ul>{sale.lines.map(line=><li key={line.sku}>{line.quantity} × {[line.product,...(line.modifiers ?? []).map(m=>m.name)].join(" · ")}</li>)}</ul></details>)}
     </section>}
   </>;
 }

@@ -93,7 +93,7 @@ export function parkSale(db: DatabaseSync,id: string,lines: CashInput['lines'],c
         line.quantity>Math.min(1000,stock.get(line.sku) ?? 0)) || new Set(lines.map(line => line.sku)).size!==lines.length)
     throw new Error('Review the cart before parking');
   db.prepare('INSERT OR REPLACE INTO parked_sales(register_id,operation_id,lines,parked_at,customer_code) VALUES (?,?,?,?,?)')
-    .run(registerId,id,JSON.stringify(lines.map(({sku,quantity})=>({sku,quantity}))),new Date().toISOString(),customerCode ?? null);
+    .run(registerId,id,JSON.stringify(lines.map(({sku,quantity,modifierNames})=>({sku,quantity,modifierNames}))),new Date().toISOString(),customerCode ?? null);
   return cashState(db);
 }
 
@@ -171,10 +171,10 @@ export async function commitCash(database: DatabaseSync, input: CashInput,cashie
     }
     checkCustomer(catalog,upi ? upi.customerCode : input.customerCode);
     const bySku = new Map(catalog.items.map((item) => [item.sku, item]));
-    const lines = input.lines.map(({ sku, quantity }) => {
+    const lines = (upi?.lines ?? input.lines).map(({ sku, quantity, modifierNames }) => {
       const item = bySku.get(sku);
       if (!item || !Number.isInteger(quantity) || quantity < 1 || quantity > item.onHand) throw new Error('Check the requested stock quantities');
-      return catalogLine(item,quantity,catalog);
+      return catalogLine(item,quantity,catalog,modifierNames);
     });
     let invoiceNumber: string|undefined;
     if (lines.some(line=>line.gst)) {

@@ -58,7 +58,7 @@ function credits(original: Original, selections: ReturnSelection[], used: Map<st
     const split = (amount: number) => portion(amount, prior + quantity, line.quantity) - portion(amount, prior, line.quantity);
     const discountMinor = split(line.discount);
     const taxMinor = split(line.tax);
-    return { sku, product: line.product, unitMinor: line.unitMinor, quantity, disposition, discountMinor, taxMinor,
+    return { sku, product: line.product, modifiers:line.modifiers, unitMinor: line.unitMinor, quantity, disposition, discountMinor, taxMinor,
       creditMinor: line.gst ? split(line.payable) : line.unitMinor * quantity - discountMinor };
   });
 }

@@ -47,15 +47,17 @@ const server = createServer(async (request, response) => {
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
     if (input.amount !== undefined) {
-      assert.equal(input.amount, 9900);
+      assert.equal(input.amount, 11900);
       upiOperation = input.operationId;
     } else assert.equal(input.operationId, upiOperation);
     response.writeHead(201, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ operationId: upiOperation, status: input.amount ? 'pending' : 'paid',
-      amountMinor: 9900, shortUrl: 'https://rzp.io/i/counter-test' }));
+      amountMinor: 11900, shortUrl: 'https://rzp.io/i/counter-test' }));
     return;
   }
   if (request.url === '/v1/devices/cash-sales') {
+    assert.deepEqual(input.operation.payload.lines[0].modifiers,[{name:'Gift wrap',priceMinor:2000}]);
+    assert.equal(input.operation.payload.lines[0].unitMinor,14900);
     assert.equal(input.deviceId, device);
     assert.equal(request.headers.authorization, `Bearer ${proof}`);
     assert.equal(input.operation.payload.customerCode,'C-1');
@@ -64,7 +66,7 @@ const server = createServer(async (request, response) => {
     assert.equal(input.operation.payload.invoiceNumber,input.operation.payload.tender==='upi'?'42-2':'42-1');
     if (input.operation.payload.tender === 'upi') {
       assert.equal(input.operation.operationId, upiOperation);
-      assert.equal(input.operation.payload.tenderedMinor, 12900);
+      assert.equal(input.operation.payload.tenderedMinor, 14900);
       assert.equal(input.operation.payload.cashPortionMinor,3000);
       recordedUpi++;
       response.writeHead(201, { 'content-type': 'application/json' });
@@ -111,7 +113,7 @@ const server = createServer(async (request, response) => {
     response.end(JSON.stringify({
       merchantId: 'fixture-in', branchId: 'central', registerId: 'counter-1', currency: 'INR', version: '1',
       customers:[{code:'C-1',name:'Test shopper'}],invoiceSeries:'42',gstRates:{Stationery:18},gstInclusive:true,receiptGstin:'27ABCDE1234F1Z5',
-      items: [{ category:'Stationery',hsn:'4820',sku: 'NOTE-A5', product: 'A5 notebook', barcode: '0012345678905', priceMinor: 12900, onHand: 2, attributes: {},
+      items: [{ category:'Stationery',hsn:'4820',sku: 'NOTE-A5', product: 'A5 notebook', barcode: '0012345678905', modifiers:[{name:'Gift wrap',priceMinor:2000}], priceMinor: 12900, onHand: 2, attributes: {},
         photo:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWV8AAAAASUVORK5CYII=' }],
     }));
     return;
@@ -212,6 +214,7 @@ async function launch(activate = false,resumePayment=false) {
                 const customer = complete.form.elements.customerCode;
                 customer.value='C-1';
                 customer.dispatchEvent(new Event('change',{bubbles:true}));
+              [...checkout.querySelectorAll('label')].find(label=>label.textContent.includes('Gift wrap') && label.querySelector('input[type=checkbox]')).querySelector('input').click();
                 quantity.focus();
                 quantity.value = '1';
                 quantity.blur();
@@ -238,7 +241,7 @@ async function launch(activate = false,resumePayment=false) {
                 if (resume) { resume.click(); window.checkoutStep = 2; }
               }
               if (next === 2 && complete && window.displayChecked) {
-                complete.form.elements.tendered.value = '130';
+                complete.form.elements.tendered.value = '150';
                 window.checkoutStep = 3;
                 complete.click();
               }
@@ -260,6 +263,7 @@ async function launch(activate = false,resumePayment=false) {
               if (customer.value) throw new Error('A new sale must default to walk-in');
               customer.value='C-1';
               customer.dispatchEvent(new Event('change',{bubbles:true}));
+              [...checkout.querySelectorAll('label')].find(label=>label.textContent.includes('Gift wrap') && label.querySelector('input[type=checkbox]')).querySelector('input').click();
               const field=document.querySelector('input[name=cashPart]');
               Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,'30');
               field.dispatchEvent(new Event('input',{bubbles:true}));
@@ -278,7 +282,7 @@ async function launch(activate = false,resumePayment=false) {
             } else if (next === 7 && button('Submit blind count')) {
               const submit = button('Submit blind count');
               if (checkout.textContent.includes('Expected')) throw new Error('Expected cash visible before blind count');
-              submit.form.elements.amount.value = '159';
+              submit.form.elements.amount.value = '179';
               window.checkoutStep = 8;
               submit.click();
             }
@@ -345,7 +349,7 @@ async function main() {
     assert.equal(committed.payload.lines[0].quantity, 1);
     assert.equal(reopened.prepare('SELECT count(*) AS count FROM cash_outbox').get().count, 0);
     assert.deepEqual({ ...reopened.prepare('SELECT counted_minor, expected_minor FROM cash_shifts').get() },
-      { counted_minor: 15900, expected_minor: 15900 });
+      { counted_minor: 17900, expected_minor: 17900 });
     const { backupCounter } = await import('../../apps/counter/dist/main/recovery.js');
     maintenanceReady(reopened);
     const backupPath = join(profile,'rehearsal.sqlite');

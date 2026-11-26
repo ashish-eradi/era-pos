@@ -1,11 +1,24 @@
 import { useEffect, useState } from 'react';
+import type { ItemModifier } from '@era/contracts';
 import { Action, request } from '../onboarding';
 
 type Draft = {
   digest: string;
-  rows: Array<{ sku: string; photo?: string | null; category?: string | null; hsn?:string|null; product: string; barcode: string; priceMinor: number; openingStock: number | null }>;
+  rows: Array<{ sku: string; modifiers?: ItemModifier[]; photo?: string | null; category?: string | null; hsn?:string|null; product: string; barcode: string; priceMinor: number; openingStock: number | null }>;
   issues: Array<{ row: number; message: string }>;
 };
+
+function ModifierFields({options}:{options:ItemModifier[]}) {
+  const [rows,setRows] = useState(() => options.map(option=>({...option,id:crypto.randomUUID()})));
+  return <details><summary>Item modifiers ({rows.length})</summary>
+    {rows.map(row=><div key={row.id}>
+      <label>Modifier name<input name="modifierName" defaultValue={row.name} required maxLength={60}/></label>
+      <label>Extra price per unit (minor units)<input name="modifierPrice" defaultValue={row.priceMinor} type="number" min="0" max="1000000000" step="1" required/></label>
+      <button type="button" onClick={()=>setRows(current=>current.filter(r=>r.id!==row.id))}>Remove modifier</button>
+    </div>)}
+    <button type="button" disabled={rows.length>=20} onClick={()=>setRows(current=>[...current,{id:crypto.randomUUID(),name:'',priceMinor:0}])}>Add modifier</button>
+  </details>;
+}
 
 async function productPhoto(form: FormData) {
   const file = form.get('photo');
@@ -64,10 +77,13 @@ export function CatalogImport({ path, token }: { path: string; token: string }) 
     <table><thead><tr><th>SKU</th><th>Barcode</th><th>Product and price</th></tr></thead>
       <tbody>{visible.sort((a,b) => sort === 'priceMinor' ? a.priceMinor-b.priceMinor : a[sort].localeCompare(b[sort])).map(item =>
         <tr key={item.sku}><td>{item.sku}</td><td>{item.barcode}</td><td><Action key={JSON.stringify(item)} title="Save item" run={async form => {
-          await request(`${path}/items`, token, { sku: item.sku, photo: await productPhoto(form), category: form.get('category'), hsn:form.get('hsn'), product: form.get('product'), priceMinor: Number(form.get('price')) });
+          const prices = form.getAll('modifierPrice');
+          const modifiers = form.getAll('modifierName').map((name,i)=>({name:String(name).trim(),priceMinor:Number(prices[i])}));
+          await request(`${path}/items`, token, { modifiers, sku: item.sku, photo: await productPhoto(form), category: form.get('category'), hsn:form.get('hsn'), product: form.get('product'), priceMinor: Number(form.get('price')) });
           refresh(n=>n+1); return 'Saved';
         }}><label>Product<input name="product" required maxLength={150} defaultValue={item.product} /></label>
           {item.photo && <><img src={item.photo} alt={item.product} loading="lazy" height="64" /><label><input name="removePhoto" type="checkbox" />Remove photo</label></>}
+          <ModifierFields options={item.modifiers ?? []}/>
           <label>Product photo<input name="photo" type="file" accept="image/png,image/jpeg,image/webp" /></label>
           <label>HSN<input name="hsn" inputMode="numeric" pattern="(?:[0-9]{4}|[0-9]{6}|[0-9]{8})" defaultValue={item.hsn ?? ''}/></label>
           <label>Category<input name="category" maxLength={80} defaultValue={item.category ?? ''} /></label>

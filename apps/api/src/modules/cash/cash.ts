@@ -74,7 +74,8 @@ export class CashController {
       !Number.isFinite(Date.parse(occurredAt)) || new Date(occurredAt).toISOString() !== occurredAt || !isCashReceiptV1(receipt)) {
       return Promise.resolve(fail('invalid_operation'));
     }
-    const lines = receipt.lines.map(({ sku, product, quantity, unitMinor, gst }) => ({ sku, product, quantity, unitMinor,
+    const lines = receipt.lines.map(({ sku, product, quantity, unitMinor, gst, modifiers }) => ({ sku, product, quantity, unitMinor,
+      ...(modifiers?.length && {modifiers:modifiers.map(({name,priceMinor})=>({name,priceMinor}))}),
       ...(gst && {gst:{rate:gst.rate,inclusive:gst.inclusive,hsn:gst.hsn}}) }));
     const saved = {
       shiftId: receipt.shiftId, currency: receipt.currency, lines, discountMinor: receipt.discountMinor,

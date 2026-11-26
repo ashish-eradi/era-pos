@@ -1,7 +1,7 @@
 import type { CashLineV1, CashReceiptV1, CatalogSnapshotV1, ReturnReceipt, ReturnRequest, SyncRequestV1 } from '@era/contracts';
 
 export type CashInput = {
-  operationId: string; shiftId: string; catalogVersion: string; lines: Array<{ sku: string; quantity: number }>;
+  operationId: string; shiftId: string; catalogVersion: string; lines: Array<{ sku: string; quantity: number; modifierNames?: string[] }>;
   discountMinor: number; tenderedMinor: number; approval?: string;
   tender?: 'upi';
   fallback?: boolean;

@@ -27,9 +27,12 @@ export function gstComponents(tax:number,source:string,destination:string) {
   const local = ['04','26','31','35','38','97'].includes(source) ? 'UTGST' : 'SGST';
   return {CGST:central,[local]:tax-central};
 }
-export function catalogLine(item:CatalogSnapshotV1['items'][number],quantity:number,catalog:CatalogSnapshotV1):CashLineV1 {
+export function catalogLine(item:CatalogSnapshotV1['items'][number],quantity:number,catalog:CatalogSnapshotV1, selected: readonly string[] = []):CashLineV1 {
   const rate = catalog.currency === 'INR' && item.category ? catalog.gstRates?.[item.category] : undefined;
-  return {sku:item.sku,product:item.product,quantity,unitMinor:item.priceMinor,
+  const modifiers = item.modifiers?.filter(option => selected.includes(option.name)) ?? [];
+  if (modifiers.length !== selected.length) throw new Error('An item modifier has changed. Review the cart.');
+  return {sku:item.sku,product:item.product,quantity,unitMinor:item.priceMinor + modifiers.reduce((sum,m)=>sum+m.priceMinor,0),
+    ...(modifiers.length > 0 && {modifiers}),
     ...(typeof rate === 'number' && {gst:{rate,inclusive:catalog.gstInclusive ?? true,hsn:item.hsn ?? ''}})};
 }
 

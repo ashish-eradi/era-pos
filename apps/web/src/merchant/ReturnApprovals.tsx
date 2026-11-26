@@ -15,7 +15,7 @@ export function ReturnApprovals({ path, token }: { path: string; token: string }
       <summary>{item.id} · {item.status} {['requested','pending_refund'].includes(item.status) &&
         `· Waiting ${Math.max(0, Math.floor((Date.now()-Date.parse(item.requestedAt))/60000))} min`}</summary>
       <p>Original receipt {item.saleId} · {item.reason}</p>
-      <ul>{item.lines.map((line) => <li key={line.sku}>{line.product} × {line.quantity} · {line.disposition}</li>)}</ul>
+      <ul>{item.lines.map((line) => <li key={line.sku}>{[line.product,...(line.modifiers ?? []).map(m=>m.name)].join(" · ")} × {line.quantity} · {line.disposition}</li>)}</ul>
       {item.replacement && <p>Replacement {item.replacement.product} × {item.replacement.quantity}</p>}
       <p>{item.differenceMinor < 0 ? 'Refund' : 'Collect'} {new Intl.NumberFormat(undefined, {
         style: 'currency', currency: item.currency,

@@ -41,18 +41,18 @@ export async function upi(database: DatabaseSync, input?: CashInput): Promise<Up
     const items = new Map(catalog.items.map((item) => [item.sku, item]));
     const skus = new Set<string>();
     let gstInvoice=false;
-    const lines = input.lines.map(({ sku, quantity }) => {
+    const lines = input.lines.map(({ sku, quantity, modifierNames }) => {
       const item = items.get(sku);
       if (!item || skus.has(sku) || !Number.isInteger(quantity) || quantity < 1 || quantity > Math.min(item.onHand, 1000)) {
         throw new Error('Check the UPI cart quantities');
       }
       skus.add(sku);
-      const line = catalogLine(item,quantity,catalog);
+      const line = catalogLine(item,quantity,catalog,modifierNames);
       gstInvoice ||= !!line.gst;
       if (line.gst && (!/^(?:\d{4}|\d{6}|\d{8})$/.test(line.gst.hsn) || !Object.hasOwn(gstStates,input.placeOfSupply ?? catalog.receiptGstin?.slice(0,2) ?? '') || !Object.hasOwn(gstStates,catalog.receiptGstin?.slice(0,2) ?? '')))
         throw new Error('Configure the HSN and place of supply before starting payment');
       amount += saleTotals([line],0).total;
-      return { sku, quantity };
+      return { sku, quantity, modifierNames };
     });
     if (gstInvoice && !validBuyer(input.buyer,amount)) throw new Error('Enter buyer name and address before starting payment');
     const cashPart=input.cashPortionMinor ?? 0;

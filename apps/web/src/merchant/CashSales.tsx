@@ -22,7 +22,7 @@ export function CashSales({ path, token }: { path: string; token: string }) {
         <summary>{sale.branch} · {new Date(sale.occurredAt).toLocaleString()} · {money(sale.receipt.totalMinor)}</summary>
         {sale.receipt.cashier && <p>Cashier {sale.receipt.cashier.name}</p>}
         <p>Receipt <code>{sale.id}</code></p>
-        <ul>{sale.receipt.lines.map((line) => <li key={line.sku}>{line.product} · {line.quantity} × {money(line.unitMinor)}</li>)}</ul>
+        <ul>{sale.receipt.lines.map((line) => <li key={line.sku}>{[line.product,...(line.modifiers ?? []).map(m=>m.name)].join(" · ")} · {line.quantity} × {money(line.unitMinor)}</li>)}</ul>
         <p>Discount {money(sale.receipt.discountMinor)} · {sale.receipt.tender === 'upi' ? 'UPI' : 'Cash'} {money(sale.receipt.tenderedMinor-(sale.receipt.cashPortionMinor ?? 0))}{sale.receipt.cashPortionMinor ? ` · Cash ${money(sale.receipt.cashPortionMinor)}` : ''}</p>
       </details>;
     })}

@@ -3,8 +3,8 @@ export type HealthResponseV1 = {
   status: 'ok' | 'unavailable';
 };
 
-export { cashAmount, cashSubtotal, isCashReceiptV1 } from './cash';
-export type { CashLineV1, CashReceiptV1 } from './cash';
+export { cashAmount, cashSubtotal, isCashReceiptV1, validModifiers } from './cash';
+export type { CashLineV1, CashReceiptV1, ItemModifier } from './cash';
 
 export { saleTotals, catalogLine, gstStates, gstComponents, validBuyer } from './gst';
 export type { ReceiptBrand, InvoiceBuyer } from './gst';
@@ -32,6 +32,7 @@ export type CatalogSnapshotV1 = {
     product: string;
     barcode: string;
     photo?: string | null;
+    modifiers?: import('./cash').ItemModifier[];
     priceMinor: number;
     attributes: Record<string, string>;
     onHand: number;

@@ -23,7 +23,7 @@ export async function printReturn(receipt: ReturnReceipt): Promise<void> {
   const format = new Intl.NumberFormat(undefined, { style: 'currency', currency: receipt.currency });
   const money = (amount: number) => format.format(amount / 100);
   const rows = receipt.lines.map((line) =>
-    `<li>${escape(line.product)} × ${line.quantity} · ${line.disposition} · Credit ${money(line.creditMinor)}
+    `<li>${escape([line.product,...(line.modifiers ?? []).map(m=>m.name)].join(" · "))} × ${line.quantity} · ${line.disposition} · Credit ${money(line.creditMinor)}
       · Discount ${money(line.discountMinor)} · Tax ${money(line.taxMinor)}</li>`).join('');
   const replacement = receipt.replacement;
   const difference = receipt.differenceMinor;
