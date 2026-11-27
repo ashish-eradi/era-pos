@@ -1,7 +1,7 @@
 import { validQuantity,lineAmount,units,type Unit } from './quantity';
 import type { CurrencyV1 } from './index';
 
-import { saleTotals, gstStates, validBuyer } from './gst';
+import { saleTotals, validCessRate, gstStates, validBuyer } from './gst';
 import type { GstLine, ReceiptBrand, InvoiceBuyer } from './gst';
 export type ItemModifier = { name: string; priceMinor: number };
 export function validModifiers(value: unknown): value is ItemModifier[] {
@@ -72,7 +72,7 @@ export function isCashReceiptV1(value: unknown): value is CashReceiptV1 {
     line.modifiers.reduce((sum,m)=>sum+m.priceMinor,0) > line.unitMinor))) return false;
   if (receipt.brand !== undefined && (!receipt.brand || typeof receipt.brand !== 'object' || Array.isArray(receipt.brand) ||
       Object.entries(receipt.brand).some(([k,v])=>typeof v !== 'string' || (k === 'logo' ? !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(v) || v.length>32768 : !['legalName','header','footer','returnPolicy'].includes(k) || v.length>800)))) return false;
-  if (receipt.lines.some(l=>l.gst !== undefined && (!l.gst || !Number.isFinite(l.gst.rate) || Math.abs(l.gst.rate*100-Math.round(l.gst.rate*100))>1e-8 || l.gst.rate<0 || l.gst.rate>100 || typeof l.gst.inclusive !== 'boolean' || typeof l.gst.hsn !== 'string' || !/^(?:\d{4}|\d{6}|\d{8})$/.test(l.gst.hsn)))) return false;
+  if (receipt.lines.some(l=>l.gst !== undefined && (!l.gst || (l.gst.cessRate !== undefined && !validCessRate(l.gst.cessRate)) || !Number.isFinite(l.gst.rate) || Math.abs(l.gst.rate*100-Math.round(l.gst.rate*100))>1e-8 || l.gst.rate<0 || l.gst.rate>100 || typeof l.gst.inclusive !== 'boolean' || typeof l.gst.hsn !== 'string' || !/^(?:\d{4}|\d{6}|\d{8})$/.test(l.gst.hsn)))) return false;
   if (receipt.lines.some(l=>l.gst) && (receipt.currency !== 'INR' || !/^\d{2}[A-Z0-9]{13}$/.test(receipt.receiptGstin ?? '') ||
     !Object.hasOwn(gstStates,receipt.placeOfSupply ?? '') || !Object.hasOwn(gstStates,receipt.receiptGstin?.slice(0,2) ?? '') || !/^[A-Z0-9/-]{1,16}$/.test(receipt.invoiceNumber ?? ''))) return false;
   const subtotal = cashSubtotal(receipt.lines);

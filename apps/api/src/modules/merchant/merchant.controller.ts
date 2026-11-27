@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
 import { allowProvisioning } from './subscription-access';
-import { gstStates,validPolicy } from '@era/contracts';
+import { gstStates,validCessRate,validPolicy } from '@era/contracts';
 import { defaults, transaction } from '../onboarding/shared';
 
 export const MERCHANT_DATABASE = Symbol('MERCHANT_DATABASE');
@@ -44,7 +44,7 @@ export class MerchantController {
   @Get('receipt-settings')
   async receiptSettings(@Param('merchantId') id: string, @Headers('authorization') auth?: string) {
     if ((await this.member(id, auth)).role !== 'owner') throw new ForbiddenException();
-    return (await this.database.query('SELECT name,coalesce(legal_name,name) AS "legalName",receipt_brand AS brand,gst_rates AS rates,gst_inclusive AS inclusive,country_code AS country,receipt_address AS address, receipt_gstin AS gstin FROM merchants WHERE id=$1', [id])).rows[0];
+    return (await this.database.query('SELECT name,coalesce(legal_name,name) AS "legalName",receipt_brand AS brand,gst_rates AS rates,cess_rates AS "cessRates",gst_inclusive AS inclusive,country_code AS country,receipt_address AS address, receipt_gstin AS gstin FROM merchants WHERE id=$1', [id])).rows[0];
   }
 
   @Post('receipt-settings')
@@ -66,6 +66,9 @@ export class MerchantController {
     if (data.rates !== undefined && (!data.rates || typeof data.rates !== 'object' || Array.isArray(data.rates) ||
       Object.entries(data.rates).some(([k,v])=>!k.trim() || k.length>80 || typeof v!=='number' || !Number.isFinite(v) || Math.abs(v*100-Math.round(v*100))>1e-8 || v<0 || v>100)))
       throw new BadRequestException('Provide GST percentages (up to two decimal places) for named categories');
+    if (data.cessRates !== undefined && (!data.cessRates || typeof data.cessRates!=='object' || Array.isArray(data.cessRates) ||
+      Object.entries(data.cessRates).some(([key,value])=>!data.rates || !Object.hasOwn(data.rates,key) || !validCessRate(value))))
+      throw new BadRequestException('Provide a cess percentage for a configured GST category');
     if (data.inclusive !== undefined && typeof data.inclusive !== 'boolean') throw new BadRequestException('Select a price mode');
     if (data.rates && Object.keys(data.rates).length && !Object.hasOwn(gstStates,gstin.slice(0,2))) throw new BadRequestException('Invalid supplier state in GSTIN');
     return transaction(this.database,async client=>{
@@ -73,11 +76,12 @@ export class MerchantController {
       if (member.role!=='owner') throw new ForbiddenException();
       const result = await client.query(`UPDATE merchants SET receipt_address=$2,receipt_gstin=$3,name=coalesce($4,name),
         legal_name=coalesce($5,legal_name),receipt_brand=coalesce($6::jsonb,receipt_brand),gst_rates=coalesce($7::jsonb,gst_rates),
-        gst_inclusive=coalesce($8,gst_inclusive) WHERE id=$1 AND
+        cess_rates=coalesce($9::jsonb,(SELECT coalesce(jsonb_object_agg(key,value),'{}') FROM jsonb_each(cess_rates)
+          WHERE coalesce($7::jsonb,gst_rates) ? key)),gst_inclusive=coalesce($8,gst_inclusive) WHERE id=$1 AND
         (coalesce($7::jsonb,gst_rates)='{}'::jsonb OR (country_code='IN' AND $3 ~ '^[0-9]{2}[A-Z0-9]{13}$' AND $2 <> ''))
         RETURNING name,coalesce(legal_name,name) AS "legalName",receipt_address AS address,receipt_gstin AS gstin,
-        receipt_brand AS brand,gst_rates AS rates,gst_inclusive AS inclusive,country_code AS country`,
-        [id,address,gstin,name,legalName,brand,data.rates,data.inclusive]);
+        receipt_brand AS brand,gst_rates AS rates,cess_rates AS "cessRates",gst_inclusive AS inclusive,country_code AS country`,
+        [id,address,gstin,name,legalName,brand,data.rates,data.inclusive,data.cessRates]);
       if (!result.rowCount) throw new BadRequestException('Configure an Indian business address and GSTIN before enabling GST');
       await client.query(`INSERT INTO catalog_imports (merchant_id,branch_id,digest,membership_id,version)
         SELECT b.merchant_id,b.id,$2,$3,coalesce(max(i.version),0)+1 FROM branches b LEFT JOIN catalog_imports i

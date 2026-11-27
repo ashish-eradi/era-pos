@@ -18,11 +18,11 @@ it('classifies interstate invoices at the historical and current thresholds usin
 });
 
 it('uses the original invoice snapshot for a later credit and nets B2CS and HSN quantities',()=>{
-  const returned = {sku:'S',product:'Spice',unitMinor:11800,quantity:0.5,disposition:'sellable' as const,discountMinor:0,taxMinor:900,creditMinor:5900};
-  const note = {...sale,note:'R1',noteDate:'2026-05-12',date:'2026-03-20',lines:[returned],originalLines:[line],replacement:null};
+  const returned = {sku:'S',product:'Spice',unitMinor:11800,quantity:0.5,disposition:'sellable' as const,discountMinor:0,taxMinor:1000,cessMinor:100,creditMinor:6000};
+  const note = {...sale,note:'R1',noteDate:'2026-05-12',date:'2026-03-20',lines:[returned],originalLines:[{...line,gst:{...line.gst,cessRate:2}}],replacement:null};
   const result = gstr1Export({...period,sales:[],notes:[note,{...note,note:'R2',buyer:'29AAACA1234B1ZB'}]});
-  expect(result.b2cs[0]).toMatchObject({taxableMinor:-5000,igstMinor:-900});
-  expect(result.creditDebitNotes[0]).toMatchObject({noteRef:'R2',invoice:'A1',taxableMinor:5000});
+  expect(result.b2cs[0]).toMatchObject({taxableMinor:-5000,igstMinor:-900,cessMinor:-100});
+  expect(result.creditDebitNotes[0]).toMatchObject({noteRef:'R2',invoice:'A1',taxableMinor:5000,cessMinor:100});
   expect(result.hsn.map(row=>row.quantityMilli)).toEqual([-500,-500]);
   expect(result.review).toEqual([]);
 });

@@ -106,7 +106,7 @@ export function DailyClose({ path, token, timezone, canApprove, initialDate }: {
       {report.currency === 'INR' && <GstReport path={path} token={token} initialMonth={selected.slice(0,7)}/>}
       {report.currency === 'INR' && <details>
         <summary>Tally accounting export</summary>
-        <p>In the destination company, set up Cash, ERA Sales, ERA Output GST, ERA UPI Clearing and ERA Exchange Clearing. GST posts to a single control ledger for reconciliation.</p>
+        <p>In the destination company, set up Cash, ERA Sales, ERA Output GST, ERA Output Cess, ERA UPI Clearing and ERA Exchange Clearing. GST posts to a single control ledger for reconciliation.</p>
         <p>Import the XML as transactions for this branch date. Check existing voucher numbers before repeating an import. Zero-value receipts are omitted.</p>
         <button type="button" onClick={() => saveFile(tallyExport(report),'application/xml',
           `era-tally-${path.split('/').pop()}-${report.date}.xml`)}>Download Tally XML</button>

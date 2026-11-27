@@ -78,7 +78,7 @@ export class CashController {
       ...(offerMinor && {offerMinor}), ...(unit && {unit}), ...(allowDecimal && {allowDecimal}),
       ...(mrpMinor!==undefined && {mrpMinor}),
       ...(modifiers?.length && {modifiers:modifiers.map(({name,priceMinor})=>({name,priceMinor}))}),
-      ...(gst && {gst:{rate:gst.rate,inclusive:gst.inclusive,hsn:gst.hsn}}) }));
+      ...(gst && {gst:{rate:gst.rate,...(gst.cessRate && {cessRate:gst.cessRate}),inclusive:gst.inclusive,hsn:gst.hsn}}) }));
     const saved = {
       shiftId: receipt.shiftId, currency: receipt.currency, lines, discountMinor: receipt.discountMinor,
       tenderedMinor: receipt.tenderedMinor, totalMinor: saleTotals(lines,receipt.discountMinor).total,

@@ -224,7 +224,7 @@ export async function checkOnboarding(port, connectionString) {
     assert.deepEqual((await call(`${otherMerchant}/cash-sales`, otherOwner.token, 200)).map(row => row.registerId), [otherRegister.id]);
     assert.equal((await db.query("SELECT 1 FROM stock_movements WHERE merchant_id = $1 AND kind = 'cash_sale'", [merchantId])).rowCount, 1);
     const receiptSettings = {name:'Demo store',legalName:'Demo legal',address:'Example address',gstin:'27ABCDE1234F1Z5',
-      brand:{footer:'Visit again'},rates:{Stationery:18},inclusive:false};
+      brand:{footer:'Visit again'},rates:{Stationery:18},cessRates:{Stationery:2},inclusive:false};
     await call(`${merchant}/receipt-settings`,owner.token,201,receiptSettings);
     const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWV8AAAAASUVORK5CYII=';
     const modifiers = [{name:'Gift wrap',priceMinor:2000}];
@@ -236,6 +236,7 @@ export async function checkOnboarding(port, connectionString) {
     const taxedCatalog = await call('devices/catalog',freshProof,201,{deviceId});
     assert.deepEqual(taxedCatalog.items.find(item=>item.sku==='NOTE-A5').modifiers,modifiers);
     assert.equal(taxedCatalog.gstRates.Stationery,18);
+    assert.equal(taxedCatalog.cessRates.Stationery,2);
     assert.equal(taxedCatalog.items.find(item=>item.sku==='NOTE-A5').hsn,'4820');
     assert.equal(taxedCatalog.items.find(item=>item.sku==='NOTE-A5').photo,photo);
     await call(`${importPath}/items`,owner.token,201,{...notebook,photo:null});
@@ -254,21 +255,22 @@ export async function checkOnboarding(port, connectionString) {
     await call(merchant+'/branches/'+second.id+'/customers/MEMBER-01/purchases',owner.token,404);
     const invoice = {...operation,operationId:randomUUID(),payload:{...operation.payload,discountMinor:0,approval:undefined,
       customerCode:'MEMBER-01',invoiceNumber:taxedCatalog.invoiceSeries+'-1',receiptGstin:receiptSettings.gstin,placeOfSupply:'29',
-      tenderedMinor:17582,lines:operation.payload.lines.map(line=>({...line,unitMinor:14900,mrpMinor:19900,modifiers,gst:{hsn:'4820',inclusive:false,rate:18}}))}};
+      tenderedMinor:17880,lines:operation.payload.lines.map(line=>({...line,unitMinor:14900,mrpMinor:19900,modifiers,gst:{hsn:'4820',inclusive:false,rate:18,cessRate:2}}))}};
     assert.equal((await call('devices/cash-sales',freshProof,201,{deviceId,operation:invoice})).status,'committed');
     assert.equal((await call('devices/cash-sales',freshProof,201,{deviceId,operation:invoice})).status,'replayed');
     await call(customers,owner.token,201,{...customer,edit:true,name:'Updated customer'});
     const purchases = await call(customers+'/MEMBER-01/purchases',owner.token,200);
-    assert.deepEqual(purchases.map(p=>[p.id,p.totalMinor,p.lines[0].sku]),[[invoice.operationId,17582,'NOTE-A5']]);
+    assert.deepEqual(purchases.map(p=>[p.id,p.totalMinor,p.lines[0].sku]),[[invoice.operationId,17880,'NOTE-A5']]);
     const syncedInvoice=(await call(`${merchant}/cash-sales`,owner.token,200)).find(row=>row.id===invoice.operationId);
-    assert.equal(syncedInvoice.receipt.totalMinor,17582);
+    assert.equal(syncedInvoice.receipt.totalMinor,17880);
     assert.equal(syncedInvoice.receipt.lines[0].mrpMinor,19900);
     await call(`${importPath}/items`,owner.token,201,{...notebook,modifiers:[]});
     const quoted=await call('devices/returns',freshProof,201,{deviceId,id:randomUUID(),action:'create',shiftId:invoice.payload.shiftId,
       saleId:invoice.operationId,reason:'Test return',lines:[{sku:'NOTE-A5',quantity:1,disposition:'sellable'}]});
     assert.deepEqual(quoted.lines[0].modifiers,modifiers);
-    assert.equal(quoted.lines[0].taxMinor,2682);
-    assert.equal(quoted.creditMinor,17582);
+    assert.equal(quoted.lines[0].taxMinor,2980);
+    assert.equal(quoted.lines[0].cessMinor,298);
+    assert.equal(quoted.creditMinor,17880);
     const weighedCsv='sku,product,barcode,price_minor,opening_stock,attributes,unit,allow_decimal,mrp_minor\nRICE,Rice,001025,999,2.5,,kg,true,1200';
     const weighedPreview=await call(importPath+'/preview',owner.token,201,{csv:weighedCsv});
     assert.deepEqual(weighedPreview.issues,[]);

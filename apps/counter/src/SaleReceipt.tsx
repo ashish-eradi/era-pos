@@ -7,7 +7,7 @@ export function SaleReceipt({ sale }: { sale: SyncRequestV1<CashReceiptV1> }) {
   const format = new Intl.NumberFormat(undefined, { style:'currency', currency:receipt.currency });
   const money = (value: number) => format.format(value / 100);
   const {total,tax,breakdown,savings} = saleTotals(receipt.lines,receipt.discountMinor);
-  const components = breakdown.map(row=>gstComponents(row.tax,receipt.receiptGstin?.slice(0,2) ?? '',receipt.placeOfSupply ?? ''));
+  const components = breakdown.map(row=>gstComponents(row.tax,receipt.receiptGstin?.slice(0,2) ?? '',receipt.placeOfSupply ?? '',row.cess));
   const summary:Record<string,number> = {};
   components.forEach(parts=>Object.entries(parts).forEach(([key,value])=>{summary[key]=(summary[key] ?? 0)+(value ?? 0);}));
   const brand=receipt.brand;
@@ -21,7 +21,7 @@ export function SaleReceipt({ sale }: { sale: SyncRequestV1<CashReceiptV1> }) {
         {receipt.buyer.deliveryAddress && <><br/>Deliver to {receipt.buyer.deliveryAddress}</>}</p>}
       <p>{new Date(sale.occurredAt).toLocaleString()}</p></header>
     <table><thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead>
-      <tbody>{receipt.lines.map((line,i) => <tr key={line.sku}><td>{line.product}{line.modifiers?.map(m=><small key={m.name}>{m.name} +{money(m.priceMinor)} each</small>)}<small>{line.mrpMinor!=null && <>MRP {money(line.mrpMinor)} · </>}{money(line.unitMinor)} each</small>{line.gst && <small>HSN {line.gst.hsn} · GST {line.gst.rate}%<br/>Taxable {money(breakdown[i].taxable)}<br/>
+      <tbody>{receipt.lines.map((line,i) => <tr key={line.sku}><td>{line.product}{line.modifiers?.map(m=><small key={m.name}>{m.name} +{money(m.priceMinor)} each</small>)}<small>{line.mrpMinor!=null && <>MRP {money(line.mrpMinor)} · </>}{money(line.unitMinor)} each</small>{line.gst && <small>HSN {line.gst.hsn} · GST {line.gst.rate}%{line.gst.cessRate ? ', Cess '+line.gst.cessRate+'%' : ''}<br/>Taxable {money(breakdown[i].taxable)}<br/>
           {Object.entries(components[i]).map(([k,v])=><span key={k}>{k} {money(v ?? 0)} </span>)}</small>}</td>
         <td>{line.quantity} {line.unit}</td><td>{money(breakdown[i].payable)}</td></tr>)}</tbody></table>
     <dl><dt>Before tax and discount</dt><dd>{money(total-tax+receipt.discountMinor)}</dd><dt>Discount {receipt.offerCode && <small>{receipt.offerCode}</small>}</dt><dd>{money(receipt.discountMinor)}</dd>

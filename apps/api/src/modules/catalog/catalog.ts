@@ -182,7 +182,7 @@ export class CatalogController {
         COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('code',c.code,'name',c.name,'phone',c.phone)) ORDER BY c.name,c.code)
           FROM customers c WHERE c.merchant_id=r.merchant_id AND c.branch_id=r.branch_id),'[]'::jsonb) AS customers,
         (SELECT policy || jsonb_build_object('id',id) FROM issued) AS "discountPolicy",
-        r.invoice_series::text AS "invoiceSeries", m.gst_rates AS "gstRates",m.gst_inclusive AS "gstInclusive",
+        r.invoice_series::text AS "invoiceSeries", m.gst_rates AS "gstRates",m.cess_rates AS "cessRates",m.gst_inclusive AS "gstInclusive",
         m.receipt_brand || jsonb_build_object('legalName',coalesce(m.legal_name,m.name)) AS brand,m.name AS "merchantName", m.receipt_address AS "receiptAddress", m.receipt_gstin AS "receiptGstin",
         CASE m.country_code WHEN 'IN' THEN 'INR' ELSE 'USD' END AS currency,
         COALESCE((SELECT max(version) FROM catalog_imports WHERE merchant_id = r.merchant_id AND branch_id = r.branch_id), 0)::text AS version,

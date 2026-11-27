@@ -13,7 +13,7 @@ export function receiptText(receipt:CashReceiptV1,id:string,date:Date,register:s
     if(line.mrpMinor!=null) parts.push('MRP '+money(line.mrpMinor)+' each');
     for (const m of line.modifiers ?? []) parts.push(m.name+' +'+money(m.priceMinor)+' each');
     if (line.gst) parts.push('HSN '+line.gst.hsn+' · GST '+line.gst.rate+'% · Taxable '+money(breakdown[i].taxable)+' · '+
-      Object.entries(gstComponents(breakdown[i].tax,receipt.receiptGstin!.slice(0,2),receipt.placeOfSupply!)).map(([k,v])=>k+' '+money(v ?? 0)).join(', '));
+      Object.entries(gstComponents(breakdown[i].tax,receipt.receiptGstin!.slice(0,2),receipt.placeOfSupply!,breakdown[i].cess)).map(([k,v])=>k+' '+money(v ?? 0)).join(', '));
   }
   if (receipt.discountMinor) parts.push('Discount '+money(receipt.discountMinor)+(receipt.offerCode?' ('+receipt.offerCode+')':''));
   if (savings) parts.push('You saved '+money(savings));

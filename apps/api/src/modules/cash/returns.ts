@@ -57,9 +57,10 @@ function credits(original: Original, selections: ReturnSelection[], used: Map<st
     if (!line || !validQuantity(quantity,line.allowDecimal) || Math.round((prior + quantity)*1000) > Math.round(line.quantity*1000)) throw new ConflictException(`Return exceeds remaining quantity for ${sku}`);
     const split = (amount: number) => portion(amount, prior + quantity, line.quantity) - portion(amount, prior, line.quantity);
     const discountMinor = split(line.discount);
-    const taxMinor = split(line.tax);
-    return { sku, product: line.product, modifiers:line.modifiers,unit:line.unit,allowDecimal:line.allowDecimal, unitMinor: line.unitMinor, quantity, disposition, discountMinor, taxMinor,
-      creditMinor: line.gst || line.allowDecimal ? split(line.payable) : line.unitMinor * quantity - discountMinor };
+    const cessMinor = split(line.cess ?? 0);
+    const taxMinor = split(line.tax-(line.cess ?? 0))+cessMinor;
+    return { sku, product: line.product, modifiers:line.modifiers,unit:line.unit,allowDecimal:line.allowDecimal, unitMinor: line.unitMinor, quantity, disposition, discountMinor, taxMinor,...(line.cess && {cessMinor}),
+      creditMinor: line.cess ? split(line.taxable)+taxMinor : line.gst || line.allowDecimal ? split(line.payable) : line.unitMinor * quantity - discountMinor };
   });
 }
 
@@ -146,8 +147,8 @@ export class ReturnsController {
       let replacement: CashLineV1 | undefined;
       if (data.replacement !== undefined) {
         const item = selection(data.replacement);
-        const { rows } = await client.query<{ product: string; price_minor: number; unit:NonNullable<CashLineV1['unit']>; allow_decimal:boolean;rate:number|null;inclusive:boolean;hsn:string|null }>(`
-          SELECT c.product,c.price_minor,c.unit,c.allow_decimal,(m.gst_rates->>c.category)::float8 AS rate,m.gst_inclusive AS inclusive,c.hsn
+        const { rows } = await client.query<{ product: string; price_minor: number; unit:NonNullable<CashLineV1['unit']>; allow_decimal:boolean;rate:number|null;cess_rate:number|null;inclusive:boolean;hsn:string|null }>(`
+          SELECT c.product,c.price_minor,c.unit,c.allow_decimal,(m.gst_rates->>c.category)::float8 AS rate,(m.cess_rates->>c.category)::float8 AS cess_rate,m.gst_inclusive AS inclusive,c.hsn
           FROM branch_catalog c JOIN merchants m ON m.id=c.merchant_id WHERE c.merchant_id = $1 AND c.branch_id = $2 AND c.sku = $3
         `, [merchant,branch,item.sku]);
         if (!rows[0]) throw new NotFoundException('Replacement SKU is missing from this branch');
@@ -155,7 +156,7 @@ export class ReturnsController {
         replacement = { ...item, unit:rows[0].unit,allowDecimal:rows[0].allow_decimal,product: rows[0].product, unitMinor: rows[0].price_minor };
         if (rows[0].rate != null) {
           if (!rows[0].hsn) throw new BadRequestException('Configure an HSN for the replacement SKU');
-          replacement.gst={rate:rows[0].rate,inclusive:rows[0].inclusive,hsn:rows[0].hsn};
+          replacement.gst={rate:rows[0].rate,...(rows[0].cess_rate && {cessRate:rows[0].cess_rate}),inclusive:rows[0].inclusive,hsn:rows[0].hsn};
         }
         if (!cashAmount(saleTotals([replacement],0).total)) throw new BadRequestException('Replacement total is too large');
       }
@@ -211,7 +212,7 @@ export class ReturnsController {
         if (await cashRefund(client,key,sale.rows[0].receipt,row.receipt.differenceMinor)!==row.receipt.cashRefundMinor)
           throw new ConflictException('Refund allocation changed. Cancel and request a new quote');
         if (lines.some((line, index) => line.creditMinor !== row.receipt.lines[index].creditMinor ||
-          line.taxMinor !== row.receipt.lines[index].taxMinor)) throw new ConflictException('Credit changed. Cancel and request a new quote');
+          (line.cessMinor ?? 0) !== (row.receipt.lines[index].cessMinor ?? 0) || line.taxMinor !== row.receipt.lines[index].taxMinor)) throw new ConflictException('Credit changed. Cancel and request a new quote');
         await client.query('UPDATE sale_returns SET approved_by = $3 WHERE merchant_id = $1 AND id = $2', [merchant,id,actor]);
         if (row.receipt.tender === 'cash') return { receipt: await finalize(client,merchant,branch,row,'complete') };
       }

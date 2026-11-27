@@ -9,7 +9,7 @@ export type { Unit } from './quantity';
 export { cashAmount, cashSubtotal, isCashReceiptV1, validModifiers } from './cash';
 export type { CashLineV1, CashReceiptV1, ItemModifier } from './cash';
 
-export { saleTotals, catalogLine, gstStates, gstComponents, validBuyer } from './gst';
+export { saleTotals, catalogLine, validCessRate, gstStates, gstComponents, validBuyer } from './gst';
 export type { ReceiptBrand, InvoiceBuyer } from './gst';
 export { receiptText } from './receipt-text';
 export { returnTenderLabel } from './returns';
@@ -19,6 +19,7 @@ export type CatalogSnapshotV1 = {
   discountPolicy?: import('./discounts').PublishedPolicy | null;
   customers?: Array<{ code: string; name: string; phone?: string }>;
   invoiceSeries?: string;
+  cessRates?: Record<string,number>;
   gstRates?: Record<string,number>;
   gstInclusive?:boolean;
   brand?: import('./gst').ReceiptBrand;

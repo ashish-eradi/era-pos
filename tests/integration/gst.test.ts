@@ -18,6 +18,15 @@ describe('GST invoice arithmetic',()=>{
     expect(saleTotals([{...item,quantity:1,unitMinor:10000,mrpMinor:12500,gst:{...gst,inclusive:false}}],1000).savings).toBe(1880);
     expect(saleTotals([item],0).savings).toBe(0);
   });
+  it('separates percentage cess on the discounted taxable value in both price modes',()=>{
+    for (const inclusive of [false,true]) {
+      const unitMinor=inclusive ? 12000 : 10000;
+      const result=saleTotals([{...item,quantity:1,unitMinor,gst:{...gst,inclusive,cessRate:2}}],unitMinor/10);
+      expect(result.total).toBe(10800);
+      expect(result.breakdown[0]).toMatchObject({taxable:9000,tax:1800,cess:180});
+      expect(gstComponents(result.tax,'27','27',result.cess)).toEqual({CGST:810,SGST:810,Cess:180});
+    }
+  });
   it('validates tender against the GST-inclusive payable amount',()=>{
     const receipt={kind:'cash_sale',shiftId:'01234567-0123-4123-9123-012345678901',currency:'INR',lines:[{...item,gst:{...gst,inclusive:false}}],
       receiptGstin:'27ABCDE1234F1Z5',placeOfSupply:'29',invoiceNumber:'3-1',discountMinor:0,tenderedMinor:27848,tender:'upi'};

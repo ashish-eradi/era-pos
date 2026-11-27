@@ -340,7 +340,7 @@ export function Checkout({ page, navigate, catalog, reloadCatalog }: { page: str
             {lines.some(line=>line.gst) && <details open={totals.total>=5000000 || undefined}><summary>Buyer details{totals.total>=5000000 ? ' (required)' : ''}</summary>
               {(['name','address','gstin','deliveryAddress'] as const).map(key=><label key={key}>{{name:'Buyer name',address:'Billing address',gstin:'Buyer GSTIN (if registered)',deliveryAddress:'Delivery address (if different)'}[key]}
                 <input disabled={!!payment} maxLength={key==='name'?120:key==='gstin'?15:400} value={buyer?.[key] ?? ''} onChange={e=>setBuyerDetails({...buyerDetails,[key]:key==='gstin'?e.target.value.toUpperCase():e.target.value})}/></label>)}</details>}
-            <dl className="totals-list"><dt>Before tax and discount</dt><dd>{money(totals.total-totals.tax+discountMinor)}</dd><dt>Tax</dt><dd>{money(totals.tax)}</dd><dt>Discount</dt><dd>{money(discountMinor)}</dd></dl>
+            <dl className="totals-list"><dt>Before tax and discount</dt><dd>{money(totals.total-totals.tax+discountMinor)}</dd><dt>Tax</dt><dd>{money(totals.tax-totals.cess)}</dd>{totals.cess>0 && <><dt>Cess</dt><dd>{money(totals.cess)}</dd></>}<dt>Discount</dt><dd>{money(discountMinor)}</dd></dl>
             {totals.savings>0 && <p>You saved {money(totals.savings)}</p>}
             <p className="total">Amount due <strong>{money(totals.total)}</strong></p>
             {!payment && <><button type="button" aria-expanded={discount} onClick={()=>{setDiscount(!discount);setCoupon('');setReduction('');}}>{discount ? 'Cancel discount' : 'Request discount'}</button>

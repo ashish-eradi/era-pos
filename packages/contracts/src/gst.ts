@@ -11,7 +11,12 @@ export function validBuyer(buyer:InvoiceBuyer|undefined,total:number) {
     (!buyer.gstin || (typeof buyer.gstin==='string' && /^\d{2}[A-Z0-9]{13}$/.test(buyer.gstin))) &&
     (!buyer.deliveryAddress || (typeof buyer.deliveryAddress==='string' && buyer.deliveryAddress.length<=400));
 }
-export type GstLine = { rate:number; inclusive:boolean; hsn:string };
+export type GstLine = { rate:number; cessRate?:number; inclusive:boolean; hsn:string };
+
+export function validCessRate(value:unknown):value is number {
+  return typeof value==='number' && Number.isFinite(value) && value>=0 && value<=1000 &&
+    Math.abs(value*100-Math.round(value*100))<1e-8;
+}
 
 export const gstStates: Record<string,string> = {
   '01':'Jammu and Kashmir','02':'Himachal Pradesh','03':'Punjab','04':'Chandigarh','05':'Uttarakhand','06':'Haryana',
@@ -22,21 +27,24 @@ export const gstStates: Record<string,string> = {
   '32':'Kerala','33':'Tamil Nadu','34':'Puducherry','35':'Andaman and Nicobar Islands','36':'Telangana','37':'Andhra Pradesh',
   '38':'Ladakh','97':'Other territory'
 };
-export function gstComponents(tax:number,source:string,destination:string) {
-  if (source !== destination) return { IGST:tax };
+export function gstComponents(tax:number,source:string,destination:string,cess=0) {
+  tax -= cess;
+  const extra = cess ? {Cess:cess} : {};
+  if (source !== destination) return { IGST:tax,...extra };
   const central = Math.floor(tax/2);
   const local = ['04','26','31','35','38','97'].includes(source) ? 'UTGST' : 'SGST';
-  return {CGST:central,[local]:tax-central};
+  return {CGST:central,[local]:tax-central,...extra};
 }
 export function catalogLine(item:CatalogSnapshotV1['items'][number],quantity:number,catalog:CatalogSnapshotV1, selected: readonly string[] = []):CashLineV1 {
   const rate = catalog.currency === 'INR' && item.category ? catalog.gstRates?.[item.category] : undefined;
+  const cessRate = item.category ? catalog.cessRates?.[item.category] : undefined;
   const modifiers = item.modifiers?.filter(option => selected.includes(option.name)) ?? [];
   if (modifiers.length !== selected.length) throw new Error('An item modifier has changed. Review the cart.');
   return {sku:item.sku,product:item.product,quantity,unitMinor:item.priceMinor + modifiers.reduce((sum,m)=>sum+m.priceMinor,0),
     ...(item.unit && item.unit!=='pcs' && {unit:item.unit}), ...(item.allowDecimal && {allowDecimal:true}),
     ...(typeof item.mrpMinor==='number' && {mrpMinor:item.mrpMinor}),
     ...(modifiers.length > 0 && {modifiers}),
-    ...(typeof rate === 'number' && {gst:{rate,inclusive:catalog.gstInclusive ?? true,hsn:item.hsn ?? ''}})};
+    ...(typeof rate === 'number' && {gst:{rate,...(cessRate && {cessRate}),inclusive:catalog.gstInclusive ?? true,hsn:item.hsn ?? ''}})};
 }
 
 export function saleTotals(lines:CashLineV1[],discountMinor:number) {
@@ -48,6 +56,7 @@ export function saleTotals(lines:CashLineV1[],discountMinor:number) {
   let allocated = 0;
   let tax = 0;
   let total = 0;
+  let cess = 0;
   const breakdown = lines.map(line=>{
     const amount = lineAmount(line.unitMinor,line.quantity);
     cumulative += amount-(line.offerMinor ?? 0);
@@ -57,14 +66,20 @@ export function saleTotals(lines:CashLineV1[],discountMinor:number) {
     const net = amount-discount;
     const rate = line.gst?.rate ?? 0;
     const basisPoints = Math.round(rate*100);
-    const divisor = BigInt(line.gst?.inclusive ? 10000+basisPoints : 10000);
-    const lineTax = Number((BigInt(net)*BigInt(basisPoints)+divisor/2n)/divisor);
+    const cessPoints = Math.round((line.gst?.cessRate ?? 0)*100);
+    const divisor = BigInt(line.gst?.inclusive ? 10000+basisPoints+cessPoints : 10000);
+    const rounded = (points:number) => Number((BigInt(net)*BigInt(points)+divisor/2n)/divisor);
+    const gst = rounded(basisPoints);
+    // Inclusive components share the rounded total so a one-paise price still reconciles.
+    const lineCess = line.gst?.inclusive ? rounded(basisPoints+cessPoints)-gst : rounded(cessPoints);
+    const lineTax = gst+lineCess;
+    cess += lineCess;
     const payable = net+(line.gst?.inclusive ? 0 : lineTax);
     tax += lineTax;
     total += payable;
-    return {discount,tax:lineTax,taxable:payable-lineTax,payable};
+    return {discount,tax:lineTax,...(cessPoints && {cess:lineCess}),taxable:payable-lineTax,payable};
   });
   const savings = lines.reduce((sum,line,i)=>sum+(line.mrpMinor == null ? 0 :
     Math.max(0,lineAmount(line.mrpMinor,line.quantity)-breakdown[i].payable)),0);
-  return {subtotal,tax,total,breakdown,savings};
+  return {subtotal,tax,cess,total,breakdown,savings};
 }

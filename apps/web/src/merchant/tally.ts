@@ -30,26 +30,27 @@ export function tallyExport(report: TallyReport) {
 ${entries.join('\n')}</VOUCHER></TALLYMESSAGE>`);
   }
   for (const {id,register_id,receipt} of report.sales) {
-    const {total,tax} = saleTotals(receipt.lines,receipt.discountMinor);
+    const {total,tax,cess} = saleTotals(receipt.lines,receipt.discountMinor);
     const cash = receipt.tender === 'upi' ? receipt.cashPortionMinor ?? 0 : receipt.totalMinor;
     voucher('Sales',`ERA-S-${register_id}-${id}`,receipt.invoiceNumber ?? id,[
-      ['Cash',-cash],['ERA UPI Clearing',cash-receipt.totalMinor],['ERA Sales',total-tax],['ERA Output GST',tax],
+      ['Cash',-cash],['ERA UPI Clearing',cash-receipt.totalMinor],['ERA Sales',total-tax],['ERA Output GST',tax-cess],['ERA Output Cess',cess],
     ]);
   }
   for (const {id,register_id,receipt} of report.returns) {
     const replacement = saleTotals(receipt.replacement ? [receipt.replacement] : [],0);
     const credit = receipt.creditMinor;
     const tax = receipt.lines.reduce((sum,line) => sum+(line.taxMinor ?? 0),0);
+    const cess = receipt.lines.reduce((sum,line)=>sum+(line.cessMinor ?? 0),0);
     const applied = Math.min(credit,replacement.total);
     const refund = Math.max(0,-receipt.differenceMinor);
     const cash = receipt.tender === 'upi' ? receipt.cashRefundMinor ?? 0 : refund;
     voucher('Credit Note',`ERA-R-${register_id}-${id}`,receipt.saleId,[
       ['Cash',cash],['ERA UPI Clearing',refund-cash],['ERA Exchange Clearing',applied],
-      ['ERA Sales',tax-credit],['ERA Output GST',-tax],
+      ['ERA Sales',tax-credit],['ERA Output GST',cess-tax],['ERA Output Cess',-cess],
     ]);
     if (receipt.replacement) voucher('Sales',`ERA-X-${register_id}-${id}`,receipt.saleId,[
       ['ERA Exchange Clearing',-applied],['Cash',-Math.max(0,receipt.differenceMinor)],
-      ['ERA Sales',replacement.total-replacement.tax],['ERA Output GST',replacement.tax],
+      ['ERA Sales',replacement.total-replacement.tax],['ERA Output GST',replacement.tax-replacement.cess],['ERA Output Cess',replacement.cess],
     ]);
   }
   return `<?xml version="1.0" encoding="UTF-8"?>

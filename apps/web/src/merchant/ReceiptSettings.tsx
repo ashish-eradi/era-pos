@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Action, request, values } from '../onboarding';
 
-type Settings = { name:string; legalName:string; address:string; gstin:string; country:string; inclusive:boolean; rates:Record<string,number>;
+type Settings = { name:string; legalName:string; address:string; gstin:string; country:string; inclusive:boolean; cessRates?:Record<string,number>; rates:Record<string,number>;
   brand:{header?:string;footer?:string;returnPolicy?:string;logo?:string} };
 
 export function ReceiptSettings({ path, token }: { path: string; token: string }) {
   const [settings, setSettings] = useState<Settings>();
-  const [rates,setRates] = useState<Array<[string,string]>>([]);
+  const [rates,setRates] = useState<Array<[string,string,string]>>([]);
   const [error, setError] = useState('');
   useEffect(() => {
     let active = true;
-    void request<Settings>(path, token).then(result => { if (active) {setSettings(result);setRates(Object.entries(result.rates ?? {}).map(([k,v])=>[k,String(v)]));} })
+    void request<Settings>(path, token).then(result => { if (active) {setSettings(result);setRates(Object.entries(result.rates ?? {}).map(([k,v])=>[k,String(v),String(result.cessRates?.[k] ?? '')]));} })
       .catch(failure => { if (active) setError(String(failure.message)); });
     return () => { active = false; };
   }, [path, token]);
@@ -27,6 +27,7 @@ export function ReceiptSettings({ path, token }: { path: string; token: string }
     }
     if (new Set(rates.map(([k])=>k.trim())).size !== rates.length) throw new Error('Use one rate per category');
     setSettings(await request<Settings>(path, token, {name,legalName,address,gstin,brand:{header,footer,returnPolicy,logo},
+      cessRates:Object.fromEntries(rates.filter(([, ,v])=>Number(v)>0).map(([k,,v])=>[k.trim(),Number(v)])),
       rates:Object.fromEntries(rates.map(([k,v])=>[k.trim(),Number(v)])), inclusive:form.has('inclusive')}));
     return 'Saved. Download the catalog on each counter to use these details for new sales.';
   }}>
@@ -38,11 +39,12 @@ export function ReceiptSettings({ path, token }: { path: string; token: string }
     <label>Receipt footer<textarea name="footer" maxLength={800} defaultValue={settings.brand.footer}/></label>
     <label>Return policy<textarea name="returnPolicy" maxLength={800} defaultValue={settings.brand.returnPolicy}/></label>
     {settings.country==='IN' && <fieldset><legend>GST by catalog category</legend>
-      <label><input type="checkbox" name="inclusive" defaultChecked={settings.inclusive}/>Catalog prices include GST</label>
-      {rates.map(([category,rate],i)=><div key={i}><label>Category<input required maxLength={80} value={category} onChange={e=>setRates(rates.map((row,n)=>n===i?[e.target.value,rate]:row))}/></label>
-        <label>GST %<input type="number" required min={0} max={100} step=".01" value={rate} onChange={e=>setRates(rates.map((row,n)=>n===i?[category,e.target.value]:row))}/></label>
+      <label><input type="checkbox" name="inclusive" defaultChecked={settings.inclusive}/>Catalog prices include GST and cess</label>
+      {rates.map(([category,rate,cess],i)=><div key={i}><label>Category<input required maxLength={80} value={category} onChange={e=>setRates(rates.map((row,n)=>n===i?[e.target.value,rate,cess]:row))}/></label>
+        <label>GST %<input type="number" required min={0} max={100} step=".01" value={rate} onChange={e=>setRates(rates.map((row,n)=>n===i?[category,e.target.value,cess]:row))}/></label>
+        <label>Cess %<input type="number" min={0} max={1000} step=".01" value={cess} onChange={e=>setRates(rates.map((row,n)=>n===i?[category,rate,e.target.value]:row))}/></label>
         <button type="button" onClick={()=>setRates(rates.filter((_,n)=>n!==i))}>Remove rate</button></div>)}
-      <button type="button" onClick={()=>setRates([...rates,['','']])}>Add category rate</button></fieldset>}
+      <button type="button" onClick={()=>setRates([...rates,['','','']])}>Add category rate</button></fieldset>}
     <label>Business address<textarea name="address" maxLength={400} defaultValue={settings.address}/></label>
     <label>GSTIN (if registered)<input name="gstin" pattern="[A-Za-z0-9]{15}" maxLength={15} defaultValue={settings.gstin}/></label>
   </Action>;

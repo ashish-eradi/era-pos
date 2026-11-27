@@ -17,7 +17,7 @@ export type ReturnReceipt = {
   currency: CurrencyV1;
   reason: string;
   status: 'requested' | 'pending_refund' | 'complete' | 'failed' | 'cancelled';
-  lines: Array<ReturnSelection & CashLineV1 & { discountMinor: number; taxMinor: number; creditMinor: number }>;
+  lines: Array<ReturnSelection & CashLineV1 & { discountMinor: number; taxMinor: number; cessMinor?:number; creditMinor: number }>;
   replacement?: CashLineV1;
   cashRefundMinor?:number;
   creditMinor: number;
