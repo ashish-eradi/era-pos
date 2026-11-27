@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Action, Field, request, values } from '../onboarding';
 import { useMerchantData } from './useMerchantData';
 import { tallyExport, type TallyReport } from './tally';
+import { gstr1Export, type GstPeriod } from './gstr1';
 
 type Row = Record<string, unknown>;
 type Shift = Row & {
@@ -42,6 +43,34 @@ function saveFile(contents: string, type: string, filename: string) {
   setTimeout(() => URL.revokeObjectURL(address),1000);
 }
 
+function GstReport({path,token,initialMonth}:{path:string;token:string;initialMonth:string}) {
+  const [month,setMonth] = useState(initialMonth);
+  const [open,setOpen] = useState(false);
+  const {data,error} = useMerchantData<GstPeriod>(open && month ? path+'/gstr1?month='+encodeURIComponent(month) : '',token);
+  const report = data && gstr1Export(data);
+  const sheets = [['b2b','B2B invoices'],['b2cl','B2C large'],['b2cs','B2C small'],['hsn','HSN summary'],
+    ['creditDebitNotes','Credit and debit notes'],['review','Items to review']] as const;
+  return <details onToggle={event=>setOpen(event.currentTarget.open)}>
+    <summary>GSTR-1 and HSN exports</summary>
+    <label>Tax month<input type="month" value={month} onChange={e=>setMonth(e.target.value)}/></label>
+    {error && <p role="alert">{error}</p>}
+    {open && month && !report && !error && <p role="status">Loading synced invoices and returns…</p>}
+    {report && <>
+      <p>Branch worksheets for accountant review. Amounts are in paise and HSN quantities are in thousandths of the listed unit. Combine branches sharing a GSTIN before filing.</p>
+      <p>{data.sales.length} synced invoices · {data.notes.length} completed returns · {report.review.length} items to review</p>
+      <button onClick={()=>saveFile(JSON.stringify(report,null,2),'application/json',`gstr1-${report.branch}-${month}.json`)}>Download all sheets as JSON</button>
+      {sheets.map(([sheet,label])=>{
+        const rows:Row[] = report[sheet];
+        return <button key={sheet} disabled={!rows.length} onClick={()=>{
+          const columns = Object.keys(rows[0]);
+          const csv = [columns,...rows.map(row=>columns.map(key=>row[key]))].map(row=>row.map(cell).join(',')).join('\r\n');
+          saveFile(csv,'text/csv',`gstr1-${report.branch}-${month}-${sheet}.csv`);
+        }}>{label} CSV ({rows.length})</button>;
+      })}
+    </>}
+  </details>;
+}
+
 export function DailyClose({ path, token, timezone, canApprove, initialDate }: { path: string; token: string; timezone: string; initialDate?: string; canApprove: boolean }) {
   const today = new Intl.DateTimeFormat('sv-SE',{timeZone:timezone}).format(new Date());
   const [selected,setSelected] = useState(initialDate ?? today);
@@ -74,6 +103,7 @@ export function DailyClose({ path, token, timezone, canApprove, initialDate }: {
         {report.sales.filter(s=>!register || s.register_id === register).map(s=><tr key={String(s.id)}><td>{String(s.id)}</td>
         <td>{money((s.receipt as {totalMinor:number}).totalMinor)}</td></tr>)}</tbody></table>
       <button type="button" onClick={() => download(report)}>Download branch CSV</button>
+      {report.currency === 'INR' && <GstReport path={path} token={token} initialMonth={selected.slice(0,7)}/>}
       {report.currency === 'INR' && <details>
         <summary>Tally accounting export</summary>
         <p>In the destination company, set up Cash, ERA Sales, ERA Output GST, ERA UPI Clearing and ERA Exchange Clearing. GST posts to a single control ledger for reconciliation.</p>
