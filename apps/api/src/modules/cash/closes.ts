@@ -100,6 +100,32 @@ export class ClosesController {
     });
   }
 
+  @Get('merchants/:merchantId/branches/:branchId/gstr1')
+  gstr1(@Param('merchantId') merchant: string, @Param('branchId') branch: string, @Query('month') month: string,
+    @Headers('authorization') authorization?: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month.startsWith('0000')) throw new BadRequestException('Select a valid month');
+    return transaction(this.database, async client => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+      await branchActor(client,merchant,branch,readers,authorization);
+      const scope = [merchant,branch,month+'-01'];
+      const period = `WITH period AS (SELECT timezone, $3::date::timestamp AT TIME ZONE timezone AS start,
+        ($3::date + interval '1 month') AT TIME ZONE timezone AS finish FROM branches WHERE merchant_id=$1 AND id=$2)`;
+      const invoice = `s.operation_id AS id, s.receipt->>'invoiceNumber' AS invoice, s.receipt->>'receiptGstin' AS supplier,
+        s.receipt->'buyer'->>'gstin' AS buyer, s.receipt->>'placeOfSupply' AS destination,
+        (s.receipt->>'totalMinor')::bigint::text AS total, to_char(s.occurred_at AT TIME ZONE timezone,'YYYY-MM-DD') AS date`;
+      const sales = await client.query(`${period} SELECT ${invoice},s.receipt->'lines' AS lines,
+        (s.receipt->>'discountMinor')::float8 AS discount FROM cash_sales s CROSS JOIN period
+        WHERE s.merchant_id=$1 AND s.branch_id=$2 AND s.receipt->>'currency'='INR'
+        AND s.occurred_at>=start AND s.occurred_at<finish ORDER BY s.occurred_at,s.register_id,s.operation_id`,scope);
+      const notes = await client.query(`${period} SELECT ${invoice},r.id AS note,r.receipt->'lines' AS lines,
+        s.receipt->'lines' AS "originalLines", r.receipt->'replacement' AS replacement,to_char(r.completed_at AT TIME ZONE timezone,'YYYY-MM-DD') AS "noteDate"
+        FROM sale_returns r JOIN cash_sales s ON (s.merchant_id,s.register_id,s.operation_id)=(r.merchant_id,r.sale_register_id,r.sale_id)
+        CROSS JOIN period WHERE s.merchant_id=$1 AND s.branch_id=$2 AND s.receipt->>'currency'='INR'
+        AND r.status='complete' AND r.completed_at>=start AND r.completed_at<finish ORDER BY r.completed_at,r.id`,scope);
+      return { month, branch, sales:sales.rows, notes:notes.rows };
+    });
+  }
+
   @Get('merchants/:merchantId/branches/:branchId/daily-close')
   daily(@Param('merchantId') merchant: string, @Param('branchId') branch: string, @Query('date') day: string,
     @Headers('authorization') authorization?: string) {

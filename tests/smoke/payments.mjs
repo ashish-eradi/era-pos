@@ -320,6 +320,10 @@ export async function checkPayments(port, connectionString, provider) {
     const reportPath = `${branchPath}/daily-close?date=${day}`;
     await call(`${branchPath}/closes/${register}/${close.id}/approve`, 201, { reason: 'Verified shortage' }, token);
     const report = await call(reportPath, 200, undefined, token);
+    const gstMonth = await call(branchPath+'/gstr1?month='+day.slice(0,7),200,undefined,token);
+    assert.ok(gstMonth.sales.length >= report.sales.length);
+    assert.ok(gstMonth.notes.length > 0 && gstMonth.notes.every(note=>note.originalLines.length));
+    await call(branchPath+'/gstr1?month=2026-13',400,undefined,token);
     assert.equal(report.shifts[0].expected_minor, '13000');
     assert.equal(report.shifts[0].variance_minor, '-3000');
     assert.equal(report.shifts[0].approved_by, 'owner');
